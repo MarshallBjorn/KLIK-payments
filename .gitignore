@@ -1,0 +1,12 @@
+# Baza danych
+db_data/
+
+# Python
+__pycache__/
+*.py[cod]
+.env
+
+# Docker
+.docker_db_history
+
+.venv
