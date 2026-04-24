@@ -10,3 +10,5 @@ __pycache__/
 .docker_db_history
 
 .venv
+
+notes.md
