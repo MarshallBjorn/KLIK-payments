@@ -1,4 +1,26 @@
-# Diagramy stanowe (B) i domenowe (C)
+# KLIK — Diagramy stanów i domen
+
+Diagramy stanowe i domenowe dla modułu C2B (płatności kodem).
+
+## Spis treści
+
+### Diagramy stanowe (B)
+- [B1 — Stany Kodu](#b1--stany-kodu)
+- [B2 — Stany Transakcji](#b2--stany-transakcji)
+- [B3 — Stany LedgerEntry](#b3--stany-ledgerentry)
+
+### Diagramy domenowe (C)
+- [C1 — ERD (model bazy danych)](#c1--erd-model-bazy-danych)
+- [C2 — Dispatcher RTGS (strategy pattern)](#c2--dispatcher-rtgs-strategy-pattern)
+
+### Dokumenty referencyjne
+- [Uwagi do ERD](#uwagi-do-erd)
+- [Mapowanie Zone → Gateway](#mapowanie-zone--gateway)
+
+## Powiązana dokumentacja
+- [WORKFLOW.md](./WORKFLOW.md) — diagramy sekwencji (A0-A5)
+- [../integration/INFO.md](../integration/INFO.md) — API reference i słownik domenowy
+- [../bpmn/](../bpmn/) — diagramy BPMN procesów biznesowych
 
 ---
 

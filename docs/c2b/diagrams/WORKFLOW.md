@@ -1,6 +1,30 @@
-# Diagramy C2B — Etapy A0–A3
+# KLIK — Diagramy sekwencji (workflow)
 
-Diagramy sekwencji dla modułu płatności kodem (C2B) w systemie KLIK.
+Diagramy sekwencji opisujące przepływ komunikacji między uczestnikami
+systemu dla modułu C2B (płatności kodem).
+
+## Spis treści
+
+### A. Onboarding
+- [A0 — Onboarding banku](#a0--onboarding-banku)
+
+### B. Cykl życia płatności
+- [A1 — Generowanie kodu](#a1--generowanie-kodu)
+- [A2 — Inicjacja transakcji przez agenta](#a2--inicjacja-transakcji-przez-agenta)
+- [A3 — Autoryzacja przez bank nadawcy](#a3--autoryzacja-przez-bank-nadawcy)
+- [A4 — Confirm, split prowizji, zapis do ledgera](#a4--confirm-split-prowizji-zapis-do-ledgera)
+- [A5 — Netting + Settlement przez RTGS](#a5--netting--settlement-przez-rtgs)
+
+### Dokumenty referencyjne
+- [Tabela: LedgerEntry per scenariusz](#tabela-ledgerentry-per-scenariusz)
+- [Tabela: pola is_on_us i zone](#tabela-pola-is_on_us-i-zone)
+- [Konfiguracja sesji rozliczeniowej](#konfiguracja-sesji-rozliczeniowej)
+- [Uwagi do implementacji](#uwagi-do-implementacji)
+
+## Powiązana dokumentacja
+- [STATE.md](./STATE.md) — diagramy stanów i ERD
+- [../integration/INFO.md](../integration/INFO.md) — API reference i słownik domenowy
+- [../bpmn/](../bpmn/) — diagramy BPMN procesów biznesowych
 
 ---
 
