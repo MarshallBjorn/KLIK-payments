@@ -40,11 +40,11 @@ THIRD_PARTY_APPS = [
 # Apki projektowe
 LOCAL_APPS = [
     'common',
+    'agents',
     # 'banks',
     # 'codes',
     # 'aliases',
     # 'ledger',
-    # 'agents',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
