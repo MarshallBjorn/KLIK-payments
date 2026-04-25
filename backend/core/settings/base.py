@@ -39,11 +39,11 @@ THIRD_PARTY_APPS = [
 
 # Apki projektowe
 LOCAL_APPS = [
-    "common",
-    "banks",
-    "agents",
-    "aliases",
-    # 'banks',
+    'common',
+    'banks',
+    'agents',
+    'merchants',
+    'aliases',
     # 'codes',
     # 'ledger',
 ]
