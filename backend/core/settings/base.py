@@ -42,7 +42,7 @@ LOCAL_APPS = [
     'common',
     'banks',
     'agents',
-    # 'banks',
+    'merchants',
     # 'codes',
     # 'aliases',
     # 'ledger',
