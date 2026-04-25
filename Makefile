@@ -1,4 +1,4 @@
-.PHONY: help dev dev-d prod down logs shell migrate makemigrations createsuperuser test lint format pre-commit clean
+.PHONY: help dev dev-d prod down logs shell migrate makemigrations createsuperuser startapp test lint format pre-commit clean
 
 help:
 	@echo "KLIK — dostępne komendy:"
@@ -16,6 +16,7 @@ help:
 	@echo "    make migrate          Uruchom migracje"
 	@echo "    make makemigrations   Wygeneruj migracje"
 	@echo "    make createsuperuser  Utwórz superusera"
+	@echo "    make startapp APP=... Utwórz nową aplikację Django"
 	@echo ""
 	@echo "  Quality:"
 	@echo "    make test             Uruchom testy z coverage"
@@ -58,6 +59,9 @@ makemigrations:
 
 createsuperuser:
 	$(DEV) exec web python manage.py createsuperuser
+
+startapp:
+	$(DEV) exec web python manage.py startapp $(APP)
 
 # Quality
 test:
