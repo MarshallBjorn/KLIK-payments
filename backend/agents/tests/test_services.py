@@ -31,7 +31,7 @@ def agent(db, bank):
         name='Agent Test',
         api_key_hash='hash',  # pragma: allowlist secret
         settlement_bank=bank,
-        iban='PL61109010140000071219812874',
+        account_identifier={'type': 'iban', 'value': 'PL61109010140000071219812874'},
         zone=Zone.PL,
     )
 

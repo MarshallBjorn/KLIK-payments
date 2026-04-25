@@ -16,9 +16,9 @@ class MSCAgreementInline(admin.TabularInline):
 
 @admin.register(Agent)
 class AgentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'zone', 'settlement_bank', 'active', 'created_at')
+    list_display = ('name', 'zone', 'settlement_bank', 'account_display', 'active', 'created_at')
     list_filter = ('zone', 'active')
-    search_fields = ('name', 'iban')
+    search_fields = ('name',)
     readonly_fields = ('id', 'api_key_hash', 'created_at', 'updated_at')
     fieldsets = (
         (
@@ -50,6 +50,12 @@ class AgentAdmin(admin.ModelAdmin):
     )
     inlines = [MSCAgreementInline]
     actions = ['generate_new_api_key']
+
+    @admin.display(description='Account')
+    def account_display(self, obj):
+        from common.account import format_account_identifier
+
+        return format_account_identifier(obj.account_identifier)
 
     @admin.action(description='Wygeneruj nowy klucz API (unieważnia stary)')
     def generate_new_api_key(self, request, queryset):

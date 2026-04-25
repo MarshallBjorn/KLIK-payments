@@ -12,6 +12,14 @@ from agents.models import Agent, MSCAgreement
 from banks.models import Bank
 from common.enums import Zone
 
+PL_IBAN = {'type': 'iban', 'value': 'PL61109010140000071219812874'}
+GB_IBAN = {'type': 'iban', 'value': 'GB82WEST12345698765432'}
+US_ACCOUNT = {
+    'type': 'us_routing',
+    'routing_number': '021000021',
+    'account_number': '1234567890',
+}
+
 
 @pytest.fixture
 def bank_pl(db):
@@ -43,7 +51,7 @@ def agent_pl(db, bank_pl):
         name='Agent Test',
         api_key_hash='dummy_hash_agent_pl',  # pragma: allowlist secret
         settlement_bank=bank_pl,
-        iban='PL61109010140000071219812874',
+        account_identifier=PL_IBAN,
         zone=Zone.PL,
     )
 
@@ -55,7 +63,7 @@ class TestAgentModel:
             name='New Agent',
             api_key_hash='hash123',  # pragma: allowlist secret
             settlement_bank=bank_pl,
-            iban='PL61109010140000071219812874',
+            account_identifier=PL_IBAN,
             zone=Zone.PL,
         )
         assert agent.id is not None
@@ -66,10 +74,33 @@ class TestAgentModel:
             name='Mismatch Agent',
             api_key_hash='hash456',  # pragma: allowlist secret
             settlement_bank=bank_uk,
-            iban='PL61109010140000071219812874',
+            account_identifier=GB_IBAN,
             zone=Zone.PL,
         )
         with pytest.raises(ValidationError, match='Strefa agenta'):
+            agent.save()
+
+    def test_account_identifier_must_match_zone(self, bank_pl):
+        # Agent w PL, ale account_identifier US — fail
+        agent = Agent(
+            name='Bad Identifier',
+            api_key_hash='hash_bad',  # pragma: allowlist secret
+            settlement_bank=bank_pl,
+            account_identifier=US_ACCOUNT,
+            zone=Zone.PL,
+        )
+        with pytest.raises(ValidationError, match='Strefa PL'):
+            agent.save()
+
+    def test_invalid_iban_in_account_identifier(self, bank_pl):
+        agent = Agent(
+            name='Invalid IBAN',
+            api_key_hash='hash_invalid',  # pragma: allowlist secret
+            settlement_bank=bank_pl,
+            account_identifier={'type': 'iban', 'value': 'NOT_AN_IBAN'},
+            zone=Zone.PL,
+        )
+        with pytest.raises(ValidationError):
             agent.save()
 
     def test_str_representation(self, agent_pl):
@@ -106,14 +137,11 @@ class TestMSCAgreementModel:
             valid_from=now,
             valid_to=now - timedelta(days=1),
         )
-        with pytest.raises(
-            (ValidationError, IntegrityError)
-        ):  # IntegrityError albo ValidationError
+        with pytest.raises((ValidationError, IntegrityError)):
             msc.save()
 
     def test_overlap_detection(self, agent_pl):
         now = timezone.now()
-        # Pierwsza umowa: dziś do za 30 dni
         MSCAgreement.objects.create(
             agent=agent_pl,
             klik_fee_perc=Decimal('0.30'),
@@ -121,7 +149,6 @@ class TestMSCAgreementModel:
             valid_from=now,
             valid_to=now + timedelta(days=30),
         )
-        # Druga umowa próbuje nakładać się: za 15 dni do za 45 dni
         msc2 = MSCAgreement(
             agent=agent_pl,
             klik_fee_perc=Decimal('0.40'),
@@ -141,7 +168,6 @@ class TestMSCAgreementModel:
             valid_from=now,
             valid_to=now + timedelta(days=30),
         )
-        # Następna zaczyna dokładnie gdzie poprzednia kończy — OK
         msc2 = MSCAgreement.objects.create(
             agent=agent_pl,
             klik_fee_perc=Decimal('0.40'),

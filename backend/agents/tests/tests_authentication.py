@@ -45,7 +45,7 @@ def agent_with_key(db, bank):
         name='Agent',
         api_key_hash=hash_value,
         settlement_bank=bank,
-        iban='PL61109010140000071219812874',
+        account_identifier={'type': 'iban', 'value': 'PL61109010140000071219812874'},
         zone=Zone.PL,
     )
     return agent, plaintext
