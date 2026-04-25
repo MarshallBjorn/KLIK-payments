@@ -43,8 +43,8 @@ LOCAL_APPS = [
     'banks',
     'agents',
     'merchants',
+    'aliases',
     'codes',
-    # 'aliases',
     # 'ledger',
 ]
 
