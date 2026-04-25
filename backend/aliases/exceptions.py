@@ -20,23 +20,23 @@ from rest_framework.exceptions import APIException
 
 class AliasAlreadyExists(APIException):
     status_code = status.HTTP_409_CONFLICT
-    default_detail = "Numer telefonu już zarejestrowany w KLIK."
-    default_code = "409_ALIAS_ALREADY_EXISTS"
+    default_detail = 'Numer telefonu już zarejestrowany w KLIK.'
+    default_code = '409_ALIAS_ALREADY_EXISTS'
 
 
 class AliasNotFound(APIException):
     status_code = status.HTTP_404_NOT_FOUND
-    default_detail = "Alias dla podanego numeru nie istnieje."
-    default_code = "404_ALIAS_NOT_FOUND"
+    default_detail = 'Alias dla podanego numeru nie istnieje.'
+    default_code = '404_ALIAS_NOT_FOUND'
 
 
 class ZoneMismatch(APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-    default_detail = "Strefa nie zgadza się z prefiksem telefonu lub strefą banku."
-    default_code = "422_ZONE_MISMATCH"
+    default_detail = 'Strefa nie zgadza się z prefiksem telefonu lub strefą banku.'
+    default_code = '422_ZONE_MISMATCH'
 
 
 class InsufficientPermissions(APIException):
     status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Bank nie ma uprawnień do operacji na tym aliasie."
-    default_code = "403_INSUFFICIENT_PERMISSIONS"
+    default_detail = 'Bank nie ma uprawnień do operacji na tym aliasie.'
+    default_code = '403_INSUFFICIENT_PERMISSIONS'

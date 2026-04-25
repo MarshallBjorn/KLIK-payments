@@ -62,8 +62,7 @@ class Alias(TimestampedModel):
         max_length=2,
         choices=Zone.choices,
         help_text=(
-            'Strefa rejestracji aliasu. Musi być zgodna z prefiksem telefonu '
-            'oraz strefą banku.'
+            'Strefa rejestracji aliasu. Musi być zgodna z prefiksem telefonu ' 'oraz strefą banku.'
         ),
     )
 

@@ -17,10 +17,10 @@ from django.urls import path
 
 from aliases.views import alias_delete, alias_lookup, alias_register
 
-app_name = "aliases"
+app_name = 'aliases'
 
 urlpatterns = [
-    path("register", alias_register, name="register"),
-    path("lookup/<str:phone>", alias_lookup, name="lookup"),
-    path("<str:phone>", alias_delete, name="delete"),
+    path('register', alias_register, name='register'),
+    path('lookup/<str:phone>', alias_lookup, name='lookup'),
+    path('<str:phone>', alias_delete, name='delete'),
 ]

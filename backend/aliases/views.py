@@ -1,5 +1,3 @@
-from django.shortcuts import render
-
 # Create your views here.
 """
 Widoki DRF dla apki aliases.
@@ -53,10 +51,10 @@ from banks.authentication import XKlikApiKeyAuthentication
 def _error_body(code: str, message: str) -> dict:
     """Format ciała błędu zgodny z INFO.md."""
     return {
-        "error": {
-            "code": code,
-            "message": message,
-            "timestamp": timezone.now().isoformat(),
+        'error': {
+            'code': code,
+            'message': message,
+            'timestamp': timezone.now().isoformat(),
         }
     }
 
@@ -68,13 +66,13 @@ def _is_unique_phone_violation(exc: IntegrityError) -> bool:
     (np. CheckConstraint na zone). Postgres wkleja nazwę constraintu w args[0].
     """
     msg = str(exc).lower()
-    return "alias_phone_unique" in msg or "phone" in msg
+    return 'alias_phone_unique' in msg or 'phone' in msg
 
 
 def _zone_mismatch_from_validation(exc: DjangoValidationError) -> bool:
     """True jeśli ValidationError dotyczy spójności strefa/telefon."""
-    error_dict = getattr(exc, "message_dict", {})
-    return "zone" in error_dict
+    error_dict = getattr(exc, 'message_dict', {})
+    return 'zone' in error_dict
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +80,7 @@ def _zone_mismatch_from_validation(exc: DjangoValidationError) -> bool:
 # ---------------------------------------------------------------------------
 
 
-@api_view(["POST"])
+@api_view(['POST'])
 @authentication_classes([XKlikApiKeyAuthentication])
 @permission_classes([IsAuthenticated])
 def alias_register(request):
@@ -108,10 +106,10 @@ def alias_register(request):
     # Konstruujemy obiekt i wołamy save() — full_clean() w środku rzuci
     # ValidationError jeśli prefiks ≠ zone lub zone ≠ bank.zone.
     alias = Alias(
-        phone=data["phone"],
+        phone=data['phone'],
         bank=bank,
-        account_identifier=data["account_identifier"],
-        zone=data["zone"],
+        account_identifier=data['account_identifier'],
+        zone=data['zone'],
     )
 
     try:
@@ -121,7 +119,7 @@ def alias_register(request):
         # Rozróżniamy zone mismatch od innych błędów walidacji żeby zwrócić
         # specyficzny kod błędu z dokumentacji.
         if _zone_mismatch_from_validation(exc):
-            raise ZoneMismatch(detail=" ".join(exc.message_dict["zone"])) from exc
+            raise ZoneMismatch(detail=' '.join(exc.message_dict['zone'])) from exc
         # Inne błędy walidacji — domyślny 400 z DRF (przez ValidationError DRF).
         from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -142,7 +140,7 @@ def alias_register(request):
 # ---------------------------------------------------------------------------
 
 
-@api_view(["GET"])
+@api_view(['GET'])
 @authentication_classes([XKlikApiKeyAuthentication])
 @permission_classes([IsAuthenticated])
 def alias_lookup(request, phone: str):
@@ -158,7 +156,7 @@ def alias_lookup(request, phone: str):
         404_ALIAS_NOT_FOUND
     """
     try:
-        alias = Alias.objects.select_related("bank").get(phone=phone)
+        alias = Alias.objects.select_related('bank').get(phone=phone)
     except Alias.DoesNotExist as exc:
         raise AliasNotFound() from exc
 
@@ -171,7 +169,7 @@ def alias_lookup(request, phone: str):
 # ---------------------------------------------------------------------------
 
 
-@api_view(["DELETE"])
+@api_view(['DELETE'])
 @authentication_classes([XKlikApiKeyAuthentication])
 @permission_classes([IsAuthenticated])
 def alias_delete(request, phone: str):
@@ -216,10 +214,10 @@ def aliases_exception_handler(exc, context):
         return None
 
     # Bierzemy code z atrybutu, fallback na status.
-    code = getattr(exc, "default_code", None) or str(response.status_code)
+    code = getattr(exc, 'default_code', None) or str(response.status_code)
     detail = response.data
-    if isinstance(detail, dict) and "detail" in detail:
-        message = str(detail["detail"])
+    if isinstance(detail, dict) and 'detail' in detail:
+        message = str(detail['detail'])
     else:
         message = str(detail)
 

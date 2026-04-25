@@ -18,23 +18,23 @@ from aliases.models import Alias
 
 @admin.register(Alias)
 class AliasAdmin(admin.ModelAdmin):
-    list_display = ("phone", "bank", "zone", "created_at")
-    list_filter = ("zone", "bank")
-    search_fields = ("phone", "bank__name", "id")
-    readonly_fields = ("id", "created_at", "updated_at")
-    ordering = ("-created_at",)
+    list_display = ('phone', 'bank', 'zone', 'created_at')
+    list_filter = ('zone', 'bank')
+    search_fields = ('phone', 'bank__name', 'id')
+    readonly_fields = ('id', 'created_at', 'updated_at')
+    ordering = ('-created_at',)
 
     fieldsets = (
         (
-            "Identyfikacja",
-            {"fields": ("id", "phone", "zone")},
+            'Identyfikacja',
+            {'fields': ('id', 'phone', 'zone')},
         ),
         (
-            "Powiązanie bankowe",
-            {"fields": ("bank", "account_identifier")},
+            'Powiązanie bankowe',
+            {'fields': ('bank', 'account_identifier')},
         ),
         (
-            "Audyt",
-            {"fields": ("created_at", "updated_at")},
+            'Audyt',
+            {'fields': ('created_at', 'updated_at')},
         ),
     )
