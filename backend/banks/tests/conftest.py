@@ -14,12 +14,12 @@ def make_bank(db):
     """
 
     def _make(
-        name: str = "PKO BP",
-        zone: str = "PL",
-        currency: str = "PLN",
+        name: str = 'PKO BP',
+        zone: str = 'PL',
+        currency: str = 'PLN',
         active: bool = True,
-        debt_limit: str = "100000.00",
-        webhook_url: str = "https://bank.example.com/webhook",
+        debt_limit: str = '100000.00',
+        webhook_url: str = 'https://bank.example.com/webhook',
     ) -> tuple[Bank, str]:
         bank = Bank(
             name=name,

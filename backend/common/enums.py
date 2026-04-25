@@ -16,19 +16,19 @@ class Zone(models.TextChoices):
     Mapowanie strefa → RTGS gateway w docs/c2b/diagrams/STATE.md (C2).
     """
 
-    PL = "PL", "Polska (SORBNET3)"
-    EU = "EU", "Strefa Euro (TARGET2)"
-    UK = "UK", "Wielka Brytania (CHAPS)"
-    US = "US", "Stany Zjednoczone (FedNow)"
+    PL = 'PL', 'Polska (SORBNET3)'
+    EU = 'EU', 'Strefa Euro (TARGET2)'
+    UK = 'UK', 'Wielka Brytania (CHAPS)'
+    US = 'US', 'Stany Zjednoczone (FedNow)'
 
 
 class Currency(models.TextChoices):
     """Waluty obsługiwane przez KLIK (1:1 z Zone)."""
 
-    PLN = "PLN", "Złoty polski"
-    EUR = "EUR", "Euro"
-    GBP = "GBP", "Funt brytyjski"
-    USD = "USD", "Dolar amerykański"
+    PLN = 'PLN', 'Złoty polski'
+    EUR = 'EUR', 'Euro'
+    GBP = 'GBP', 'Funt brytyjski'
+    USD = 'USD', 'Dolar amerykański'
 
 
 # Mapowanie wymuszające spójność strefa ↔ waluta.
