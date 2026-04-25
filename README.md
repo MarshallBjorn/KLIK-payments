@@ -103,35 +103,49 @@ Szczegółowa dokumentacja podzielona jest tematycznie. README zawiera tylko pod
 
 Dokumentacja w przygotowaniu. Zakres modułu ograniczony — patrz [sekcja Zakres](#zakres).
 
-## Quickstart
-
-### Wymagania
-
-- Docker + Docker Compose
-- Port 8000 (Django), 5432 (Postgres), 6379 (Redis) dostępne lokalnie
-
-### Uruchomienie środowiska developerskiego
-
-```bash
-# 1. Skopiuj plik konfiguracyjny i uzupełnij wartości
-cp .env.example .env
-# edytuj .env — uzupełnij SECRET_KEY, POSTGRES_*, DJANGO_SETTINGS_MODULE
-
-# 2. Zbuduj i uruchom kontenery
-docker compose up --build
-
-# 3. W drugim terminalu — migracje i użytkownik admin
-docker compose exec web python manage.py migrate
-docker compose exec web python manage.py createsuperuser
-```
-
-Po uruchomieniu:
-- API dostępne pod `http://localhost:8000/api/v1/`
-- Django Admin (panel operatora) pod `http://localhost:8000/admin/`
-
 ### Testowanie integracji
 
 Przykładowe wywołania API dla banków znajdziesz w [INFO.md](./docs/c2b/integration/INFO.md#api-reference).
+
+## Development workflow
+
+### Pierwszy setup po klonowaniu repo
+
+```bash
+# 1. Skopiuj env
+cp .env.example .env
+# Wygeneruj SECRET_KEY i wklej
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+
+# 2. Pre-commit hooks (lokalne, jednorazowo)
+pip install pre-commit detect-secrets
+pre-commit install
+detect-secrets scan > .secrets.baseline
+
+# 3. Uruchom
+make dev
+```
+
+### Codzienna praca
+
+```bash
+make dev              # Start środowiska
+make logs             # Logi live
+make shell            # Bash w kontenerze web
+make test             # Testy
+make lint             # Sprawdzenie linterów (ruff)
+make format           # Auto-format kodu
+make pre-commit       # Uruchom wszystkie hooki
+```
+
+### CI
+
+Każdy push i PR przechodzi przez GitHub Actions:
+- **Lint** — ruff check + format
+- **Tests** — pytest z coverage
+- **Docker build** — sprawdzenie buildowania obrazu
+
+PR nie zostanie zmergowany jeśli CI jest czerwony.
 
 ## Status projektu
 

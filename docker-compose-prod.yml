@@ -1,0 +1,24 @@
+services:
+  web:
+    command: gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 4 --access-logfile - --error-logfile -
+    ports:
+      - "8000:8000"  # W realnym prod tu byłby reverse proxy (nginx/traefik), nie expose direct
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    restart: unless-stopped
+
+  worker:
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    restart: unless-stopped
+
+  beat:
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    restart: unless-stopped
+
+  db:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
