@@ -22,38 +22,38 @@ from banks.models import Bank
 
 @admin.register(Bank)
 class BankAdmin(admin.ModelAdmin):
-    list_display = ("name", "zone", "currency", "active", "has_webhook", "created_at")
-    list_filter = ("zone", "currency", "active")
-    search_fields = ("name", "id")
-    readonly_fields = ("id", "api_key_hash", "created_at", "updated_at")
-    ordering = ("name",)
+    list_display = ('name', 'zone', 'currency', 'active', 'has_webhook', 'created_at')
+    list_filter = ('zone', 'currency', 'active')
+    search_fields = ('name', 'id')
+    readonly_fields = ('id', 'api_key_hash', 'created_at', 'updated_at')
+    ordering = ('name',)
 
     fieldsets = (
         (
-            "Identyfikacja",
-            {"fields": ("id", "name")},
+            'Identyfikacja',
+            {'fields': ('id', 'name')},
         ),
         (
-            "Konfiguracja domenowa",
-            {"fields": ("zone", "currency", "debt_limit", "active")},
+            'Konfiguracja domenowa',
+            {'fields': ('zone', 'currency', 'debt_limit', 'active')},
         ),
         (
-            "Integracja",
-            {"fields": ("webhook_url", "api_key_hash")},
+            'Integracja',
+            {'fields': ('webhook_url', 'api_key_hash')},
         ),
         (
-            "Audyt",
-            {"fields": ("created_at", "updated_at")},
+            'Audyt',
+            {'fields': ('created_at', 'updated_at')},
         ),
     )
 
-    actions = ["rotate_api_keys_bulk"]
+    actions = ['rotate_api_keys_bulk']
 
     # ------------------------------------------------------------------
     # Display helpers
     # ------------------------------------------------------------------
 
-    @admin.display(boolean=True, description="Webhook")
+    @admin.display(boolean=True, description='Webhook')
     def has_webhook(self, obj: Bank) -> bool:
         return bool(obj.webhook_url)
 
@@ -65,9 +65,9 @@ class BankAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
-                "<uuid:bank_id>/rotate-api-key/",
+                '<uuid:bank_id>/rotate-api-key/',
                 self.admin_site.admin_view(self.rotate_api_key_view),
-                name="banks_bank_rotate_api_key",
+                name='banks_bank_rotate_api_key',
             ),
         ]
         # Custom przed defaultami, żeby nie zostały złapane przez `<path:object_id>/`.
@@ -82,47 +82,47 @@ class BankAdmin(admin.ModelAdmin):
         """
         bank = self.get_object(request, bank_id)
         if bank is None:
-            messages.error(request, "Bank nie istnieje.")
-            return HttpResponseRedirect(reverse("admin:banks_bank_changelist"))
+            messages.error(request, 'Bank nie istnieje.')
+            return HttpResponseRedirect(reverse('admin:banks_bank_changelist'))
 
-        if request.method != "POST":
+        if request.method != 'POST':
             # Strażnik na wypadek GET (np. przejście linkiem). Bez tego dałoby się
             # zrotować klucz przez przeglądarkę przy odświeżeniu strony, co jest
             # niebezpieczne (CSRF chroni tylko POST).
-            messages.error(request, "Generowanie klucza wymaga akcji POST.")
+            messages.error(request, 'Generowanie klucza wymaga akcji POST.')
             return HttpResponseRedirect(
-                reverse("admin:banks_bank_change", args=[bank.pk]),
+                reverse('admin:banks_bank_change', args=[bank.pk]),
             )
 
         with transaction.atomic():
             plaintext = bank.rotate_api_key()
-            bank.save(update_fields=["api_key_hash", "updated_at"])
+            bank.save(update_fields=['api_key_hash', 'updated_at'])
 
         messages.warning(
             request,
             format_html(
-                "Wygenerowano nowy klucz API dla <b>{}</b>. "
-                "Skopiuj go teraz — nie zostanie pokazany ponownie:<br>"
+                'Wygenerowano nowy klucz API dla <b>{}</b>. '
+                'Skopiuj go teraz — nie zostanie pokazany ponownie:<br>'
                 '<code style="font-size:1.1em">{}</code>',
                 bank.name,
                 plaintext,
             ),
         )
         return HttpResponseRedirect(
-            reverse("admin:banks_bank_change", args=[bank.pk]),
+            reverse('admin:banks_bank_change', args=[bank.pk]),
         )
 
     # ------------------------------------------------------------------
     # Renderowanie przycisku w formularzu edycji
     # ------------------------------------------------------------------
 
-    change_form_template = "admin/banks/bank/change_form.html"
+    change_form_template = 'admin/banks/bank/change_form.html'
 
     # ------------------------------------------------------------------
     # Akcja masowa
     # ------------------------------------------------------------------
 
-    @admin.action(description="Wygeneruj nowe klucze API dla zaznaczonych banków")
+    @admin.action(description='Wygeneruj nowe klucze API dla zaznaczonych banków')
     def rotate_api_keys_bulk(self, request, queryset):
         """Akcja na liście — rotuje klucze dla wielu banków naraz.
 
@@ -133,21 +133,21 @@ class BankAdmin(admin.ModelAdmin):
         with transaction.atomic():
             for bank in queryset:
                 plaintext = bank.rotate_api_key()
-                bank.save(update_fields=["api_key_hash", "updated_at"])
+                bank.save(update_fields=['api_key_hash', 'updated_at'])
                 rotated.append((bank.name, plaintext))
 
         if not rotated:
             return
 
         rows = format_html(
-            "<br>".join(
-                ["<b>{}</b>: <code>{}</code>".format(*r) for r in rotated],
+            '<br>'.join(
+                ['<b>{}</b>: <code>{}</code>'.format(*r) for r in rotated],
             ),
         )
         messages.warning(
             request,
             format_html(
-                "Wygenerowano {} nowych kluczy. Skopiuj je teraz:<br>{}",
+                'Wygenerowano {} nowych kluczy. Skopiuj je teraz:<br>{}',
                 len(rotated),
                 rows,
             ),
@@ -169,8 +169,8 @@ class BankAdmin(admin.ModelAdmin):
             messages.warning(
                 request,
                 format_html(
-                    "Utworzono bank <b>{}</b>. Klucz API (zapisz teraz, "
-                    "nie zostanie pokazany ponownie):<br><code>{}</code>",
+                    'Utworzono bank <b>{}</b>. Klucz API (zapisz teraz, '
+                    'nie zostanie pokazany ponownie):<br><code>{}</code>',
                     obj.name,
                     plaintext,
                 ),

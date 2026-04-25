@@ -22,7 +22,9 @@ from rest_framework.authentication import BaseAuthentication
 
 from banks.models import Bank, hash_api_key
 
-API_KEY_HEADER = 'HTTP_X_KLIK_API_KEY'  # Django wystawia nagłówki jako HTTP_*
+API_KEY_HEADER = (
+    'HTTP_X_KLIK_API_KEY'  # Django wystawia nagłówki jako HTTP_* pragma: allowlist secret
+)
 
 
 class BankInactive(exceptions.AuthenticationFailed):
