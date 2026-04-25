@@ -1,14 +1,74 @@
-# Baza danych
+# Baza danych (volume Postgresa)
 db_data/
 
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+
+notes.md
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+.cache/
+
+# Linters / type checkers
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+local_settings.py
+
+# Env
 .env
+.env.local
+.env.*.local
 
 # Docker
 .docker_db_history
 
-.venv
+# Celery
+celerybeat-schedule
+celerybeat.pid
 
-notes.md
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend (na przyszłość, dla agenta Vue)
+node_modules/
+agent/dist/
+agent/.vite/

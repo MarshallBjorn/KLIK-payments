@@ -1,6 +1,22 @@
-django
-djangorestframework
-psycopg2-binary
-celery
-redis
-django-environ
+# Core framework
+Django==5.1.4
+djangorestframework==3.15.2
+
+# Database
+psycopg[binary]==3.2.3
+django-environ==0.11.2
+
+# Async tasks
+celery==5.4.0
+redis==5.2.0
+django-celery-beat==2.7.0
+
+# Production server
+gunicorn==23.0.0
+
+# Dev / test (opcjonalnie wydziel do requirements-dev.txt)
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==6.0.0
+factory-boy==3.3.1
+ruff==0.8.4

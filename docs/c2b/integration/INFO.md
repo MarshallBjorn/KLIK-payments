@@ -466,4 +466,3 @@ Przekroczenie = `429 Too Many Requests` z nagłówkiem `Retry-After`.
 - **Dokumentacja techniczna:** `docs/` w repo KLIK
 - **Diagramy:** `docs/diagrams/` (UML), `docs/bpmn/` (BPMN)
 - **Zgłoszenia integracyjne:** przez operatora KLIK (poza systemem w MVP)
-  
