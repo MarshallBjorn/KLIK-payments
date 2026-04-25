@@ -129,6 +129,23 @@ class Bank(TimestampedModel):
     def __str__(self) -> str:
         return f"{self.name} ({self.zone})"
 
+    # ------------------------------------------------------------------
+    # DRF compatibility
+    # ------------------------------------------------------------------
+    # DRF's IsAuthenticated permission sprawdza `request.user.is_authenticated`.
+    # Standardowo to property na `auth.User`, ale my zwracamy Bank jako user-a
+    # (banki nie mają encji User w MVP). Hardkodujemy True bo sam fakt że Bank
+    # trafił do request.user oznacza że auth class go zwaliował.
+    # Analogicznie `is_anonymous` musi być False dla symetrii.
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+    @property
+    def is_anonymous(self) -> bool:
+        return False
+
     def clean(self) -> None:
         """Walidacja na poziomie modelu — wywoływana przez admin i serializery."""
         super().clean()

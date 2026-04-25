@@ -38,14 +38,27 @@ class TestBankDefaults:
         assert bank.updated_at is not None
 
     def test_default_debt_limit_is_zero(self, db):
+        from decimal import Decimal
+
         bank = Bank(name="Bank Zero", zone="PL", currency="PLN")
         bank.rotate_api_key()
         bank.save()
-        assert bank.debt_limit == 0
+        bank.refresh_from_db()
+        assert bank.debt_limit == Decimal("0")
 
     def test_str_representation(self, make_bank):
         bank, _ = make_bank(name="mBank", zone="PL")
         assert str(bank) == "mBank (PL)"
+
+    def test_is_authenticated_true(self, make_bank):
+        """Wymagane przez DRF IsAuthenticated permission. Bank w request.user
+        zawsze jest "uwierzytelniony" — auth class go zwaliował."""
+        bank, _ = make_bank()
+        assert bank.is_authenticated is True
+
+    def test_is_anonymous_false(self, make_bank):
+        bank, _ = make_bank()
+        assert bank.is_anonymous is False
 
 
 # ----------------------------------------------------------------------
@@ -160,7 +173,11 @@ class TestDebtLimitConstraint:
             bank.save()
 
     def test_zero_debt_limit_allowed(self, db):
+        from decimal import Decimal
+
         bank = Bank(name="Zero Bank", zone="PL", currency="PLN", debt_limit="0")
         bank.rotate_api_key()
         bank.save()  # nie powinno rzucić
-        assert bank.debt_limit == 0
+        # Refresh żeby dostać typ z DB (Decimal), nie string z Python-side initu.
+        bank.refresh_from_db()
+        assert bank.debt_limit == Decimal("0")
