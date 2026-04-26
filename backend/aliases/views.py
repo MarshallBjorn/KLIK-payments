@@ -52,7 +52,6 @@ from aliases.services.exceptions import (
 from banks.authentication import XKlikBankApiKeyAuthentication
 from banks.permissions import BankHasP2PEnabled
 
-
 # ---------------------------------------------------------------------------
 # POST /aliases/register
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ import pytest
 from rest_framework import status
 
 from aliases.models import Alias
-from aliases.tests.conftest import PL_IBAN, UK_IBAN
+from aliases.tests.conftest import PL_IBAN
 
 REGISTER_URL = "/api/v1/aliases/register"
 

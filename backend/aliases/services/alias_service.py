@@ -65,7 +65,7 @@ class AliasService:
     def register(
         self,
         *,
-        bank: "Bank",
+        bank: Bank,
         phone: str,
         account_identifier: dict,
         zone: str,
@@ -132,7 +132,7 @@ class AliasService:
     # GET /aliases/lookup/<phone>
     # ------------------------------------------------------------------
 
-    def lookup_for_bank(self, *, querying_bank: "Bank", phone: str) -> Alias:
+    def lookup_for_bank(self, *, querying_bank: Bank, phone: str) -> Alias:
         """Wyszukuje alias po numerze telefonu i inkrementuje counter.
 
         Args:
@@ -175,7 +175,7 @@ class AliasService:
     # DELETE /aliases/<phone>
     # ------------------------------------------------------------------
 
-    def unregister(self, *, bank: "Bank", phone: str) -> None:
+    def unregister(self, *, bank: Bank, phone: str) -> None:
         """Usuwa alias — tylko jeśli `bank` jest jego właścicielem.
 
         Args:

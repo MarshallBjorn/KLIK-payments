@@ -88,7 +88,10 @@ class Transaction(models.Model):
         db_index=True,
     )
     reject_reason = models.CharField(
-        max_length=30, choices=RejectReason.choices, blank=True, null=True
+        max_length=30,
+        choices=RejectReason.choices,
+        blank=True,
+        null=True,  # noqa: DJ001
     )
 
     # Idempotency
