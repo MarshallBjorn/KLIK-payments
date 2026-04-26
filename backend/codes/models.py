@@ -7,14 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from codes.enums import RejectReason, TransactionStatus
-from common.enums import Zone
-
-ZONE_TO_CURRENCY = {
-    Zone.PL: 'PLN',
-    Zone.EU: 'EUR',
-    Zone.UK: 'GBP',
-    Zone.US: 'USD',
-}
+from common.enums import ZONE_CURRENCY, Zone
 
 
 class Transaction(models.Model):
@@ -130,7 +123,7 @@ class Transaction(models.Model):
         super().clean()
 
         # Currency musi pasować do strefy
-        expected_currency = ZONE_TO_CURRENCY.get(self.zone)
+        expected_currency = ZONE_CURRENCY.get(self.zone)
         if expected_currency and self.currency != expected_currency:
             raise ValidationError(
                 {

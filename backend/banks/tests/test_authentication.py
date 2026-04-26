@@ -53,7 +53,7 @@ def auth():
 
 
 @pytest.mark.django_db
-class TestXKlikApiKeyAuthentication:
+class TestXKlikBankApiKeyAuthentication:
     def test_valid_key_returns_bank(self, factory, auth, make_bank):
         bank, plaintext = make_bank(active=True)
         request = factory.get('/dummy/', HTTP_X_KLIK_BANK_API_KEY=plaintext)
