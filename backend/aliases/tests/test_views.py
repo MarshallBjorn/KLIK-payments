@@ -141,7 +141,7 @@ class TestRegisterEndpoint:
             format='json',
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        _assert_error_envelope(response, expected_code='authentication_failed')
+        _assert_error_envelope(response, expected_code='401_UNAUTHORIZED')
 
     def test_403_bank_inactive(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(active=False)

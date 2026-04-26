@@ -128,10 +128,6 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
-    # NOWE: globalny handler błędów ujednolicający format JSON do
-    # {"error": {"code": ..., "message": ..., "timestamp": ...}}
-    # zgodnie z docs/c2b/integration/INFO.md.
-    'EXCEPTION_HANDLER': 'common.exceptions.klik_exception_handler',
 }
 # ============================================================
 # Password validation

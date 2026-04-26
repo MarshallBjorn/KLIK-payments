@@ -42,7 +42,6 @@ from aliases.serializers import (
     AliasRegisterResponseSerializer,
     AliasRegisterSerializer,
 )
-<<<<<<< HEAD
 from aliases.services import AliasService
 from aliases.services.exceptions import (
     AliasAlreadyRegisteredError,
@@ -52,37 +51,6 @@ from aliases.services.exceptions import (
 )
 from banks.authentication import XKlikBankApiKeyAuthentication
 from banks.permissions import BankHasP2PEnabled
-=======
-from banks.authentication import XKlikBankApiKeyAuthentication
-
-
-def _error_body(code: str, message: str) -> dict:
-    """Format ciała błędu zgodny z INFO.md."""
-    return {
-        'error': {
-            'code': code,
-            'message': message,
-            'timestamp': timezone.now().isoformat(),
-        }
-    }
-
-
-def _is_unique_phone_violation(exc: IntegrityError) -> bool:
-    """Heurystyka: czy IntegrityError dotyczy unique constraint na phone.
-
-    Patrzymy po nazwach constraintów żeby nie złapać przypadkiem innych
-    (np. CheckConstraint na zone). Postgres wkleja nazwę constraintu w args[0].
-    """
-    msg = str(exc).lower()
-    return 'alias_phone_unique' in msg or 'phone' in msg
-
-
-def _zone_mismatch_from_validation(exc: DjangoValidationError) -> bool:
-    """True jeśli ValidationError dotyczy spójności strefa/telefon."""
-    error_dict = getattr(exc, 'message_dict', {})
-    return 'zone' in error_dict
-
->>>>>>> bdf0fe3 (feat(codes): Make endpoints with testing, tests not passing waiting for banks changes.)
 
 # ---------------------------------------------------------------------------
 # POST /aliases/register
@@ -91,11 +59,7 @@ def _zone_mismatch_from_validation(exc: DjangoValidationError) -> bool:
 
 @api_view(['POST'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
-<<<<<<< HEAD
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
-=======
-@permission_classes([IsAuthenticated])
->>>>>>> bdf0fe3 (feat(codes): Make endpoints with testing, tests not passing waiting for banks changes.)
 def alias_register(request):
     """Rejestracja aliasu telefon → konto bankowe.
 
@@ -141,11 +105,7 @@ def alias_register(request):
 
 @api_view(['GET'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
-<<<<<<< HEAD
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
-=======
-@permission_classes([IsAuthenticated])
->>>>>>> bdf0fe3 (feat(codes): Make endpoints with testing, tests not passing waiting for banks changes.)
 def alias_lookup(request, phone: str):
     """Wyszukanie banku/IBAN po numerze telefonu.
 
@@ -178,11 +138,7 @@ def alias_lookup(request, phone: str):
 
 @api_view(['DELETE'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
-<<<<<<< HEAD
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
-=======
-@permission_classes([IsAuthenticated])
->>>>>>> bdf0fe3 (feat(codes): Make endpoints with testing, tests not passing waiting for banks changes.)
 def alias_delete(request, phone: str):
     """Usunięcie aliasu (np. klient wyłącza funkcję lub zamyka konto).
 

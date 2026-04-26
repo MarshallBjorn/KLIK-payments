@@ -43,7 +43,7 @@ def bank_pl(db):
 @pytest.fixture
 def bank_with_key(db):
     """Bank z wygenerowanym kluczem API plaintext."""
-    from banks.authentication import generate_api_key as generate_bank_key
+    from banks.models import generate_api_key as generate_bank_key
 
     plaintext, hash_ = generate_bank_key()
     bank = Bank.objects.create(
@@ -151,7 +151,7 @@ class TestPaymentInitiate:
         )
 
         # Mockujemy Celery task żeby nie próbował wywołać webhooka
-        with patch('codes.views.authorize_webhook_task.delay') as mock_task:
+        with patch('codes.tasks.authorize_webhook_task.delay') as mock_task:
             response = client.post(
                 '/api/v1/payments/initiate',
                 {
@@ -172,7 +172,7 @@ class TestPaymentInitiate:
 
     def test_expired_code_returns_404(self, client, agent_with_key, merchant):
         agent, key = agent_with_key
-        with patch('codes.views.authorize_webhook_task.delay'):
+        with patch('codes.tasks.authorize_webhook_task.delay'):
             response = client.post(
                 '/api/v1/payments/initiate',
                 {
@@ -221,7 +221,7 @@ class TestPaymentStatus:
         assert response.data['status'] == 'PENDING'
 
     def test_other_bank_gets_404(self, client, agent_with_key, merchant, db):
-        from banks.authentication import generate_api_key as generate_bank_key
+        from banks.models import generate_api_key as generate_bank_key
 
         # Bank A — sender
         bank_a = Bank.objects.create(
