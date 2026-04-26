@@ -1,5 +1,5 @@
 """
-Custom DRF authentication class — `XKlikApiKeyAuthentication`.
+Custom DRF authentication class — `XKlikBankApiKeyAuthentication`.
 
 Banki uwierzytelniają się statycznym kluczem API w nagłówku `X-KLIK-Api-Key`
 (MVP — patrz INFO.md, sekcja "Autentykacja").
@@ -15,7 +15,14 @@ Flow:
 Zwracamy obiekt Bank zamiast User-a. To celowe — w MVP banki nie mają
 encji User w sensie auth.User, są to byty domenowe. Permission classes
 mogą czytać `request.user` jako Bank.
+
+Naming: klasa to `XKlikBankApiKeyAuthentication` (symetria z
+`XKlikAgentApiKeyAuthentication` w apce agents). Stara nazwa
+`XKlikApiKeyAuthentication` jest backward-compatible aliasem z
+DeprecationWarning — do usunięcia po migracji wszystkich call sites.
 """
+
+import warnings
 
 from rest_framework import exceptions
 from rest_framework.authentication import BaseAuthentication
@@ -23,7 +30,7 @@ from rest_framework.authentication import BaseAuthentication
 from banks.models import Bank, hash_api_key
 
 API_KEY_HEADER = (
-    'HTTP_X_KLIK_API_KEY'  # Django wystawia nagłówki jako HTTP_* pragma: allowlist secret
+    'HTTP_X_KLIK_BANK_API_KEY'  # Django wystawia nagłówki jako HTTP_* pragma: allowlist secret
 )
 
 
@@ -40,14 +47,14 @@ class BankInactive(exceptions.AuthenticationFailed):
     default_code = '403_BANK_INACTIVE'
 
 
-class XKlikApiKeyAuthentication(BaseAuthentication):
-    """Uwierzytelnianie banku przez nagłówek `X-KLIK-Api-Key`.
+class XKlikBankApiKeyAuthentication(BaseAuthentication):
+    """Uwierzytelnianie banku przez nagłówek `X-KLIK-Bank-Api-Key`.
 
     Zwraca instancję `Bank` w `request.user`, więc widoki mogą np. robić
     `request.user.zone` żeby sprawdzić strefę nadawcy.
     """
 
-    keyword = 'X-KLIK-Api-Key'
+    keyword = 'X-KLIK-Bank-Api-Key'
 
     def authenticate(self, request):
         plaintext = request.META.get(API_KEY_HEADER)
@@ -76,3 +83,24 @@ class XKlikApiKeyAuthentication(BaseAuthentication):
         DRF wymaga implementacji jeśli auth class ma generować 401.
         """
         return self.keyword
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible alias — DEPRECATED
+# ---------------------------------------------------------------------------
+# Stara nazwa (przed wydzieleniem P2P i symetrii z XKlikAgentApiKey...).
+# Ostrzeżenie pokazujemy przy *imporcie* przez stary alias, nie przy każdym
+# wywołaniu — żeby nie zaśmiecać logów. Do usunięcia po przepisaniu wszystkich
+# call sites (grep `XKlikApiKeyAuthentication`).
+
+
+def __getattr__(name: str):
+    if name == 'XKlikApiKeyAuthentication':
+        warnings.warn(
+            'XKlikApiKeyAuthentication zostało zmienione na '
+            'XKlikBankApiKeyAuthentication. Stary alias zostanie usunięty.',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return XKlikBankApiKeyAuthentication
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

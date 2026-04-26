@@ -22,8 +22,17 @@ from banks.models import Bank
 
 @admin.register(Bank)
 class BankAdmin(admin.ModelAdmin):
-    list_display = ('name', 'zone', 'currency', 'active', 'has_webhook', 'created_at')
-    list_filter = ('zone', 'currency', 'active')
+    list_display = (
+        'name',
+        'zone',
+        'currency',
+        'active',
+        'c2b_enabled',
+        'p2p_enabled',
+        'has_webhook',
+        'created_at',
+    )
+    list_filter = ('zone', 'currency', 'active', 'c2b_enabled', 'p2p_enabled')
     search_fields = ('name', 'id')
     readonly_fields = ('id', 'api_key_hash', 'created_at', 'updated_at')
     ordering = ('name',)
@@ -36,6 +45,18 @@ class BankAdmin(admin.ModelAdmin):
         (
             'Konfiguracja domenowa',
             {'fields': ('zone', 'currency', 'debt_limit', 'active')},
+        ),
+        (
+            'Moduły',
+            {
+                'fields': ('c2b_enabled', 'p2p_enabled', 'p2p_lookup_fee'),
+                'description': (
+                    'Flagi uczestnictwa w modułach KLIK. C2B (płatności kodem) '
+                    'jest defaultem dla istniejących banków. P2P (przelewy po '
+                    'numerze telefonu) wymaga osobnej aktywacji — bank musi '
+                    'mieć skonfigurowany webhook lookupu i zaakceptować cennik P2P.'
+                ),
+            },
         ),
         (
             'Integracja',
