@@ -122,15 +122,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
     ],
+    'EXCEPTION_HANDLER': 'common.exceptions.klik_exception_handler',
     # Auth domyślny — w MVP używamy custom X-KLIK-Api-Key (do dopisania)
     'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
-    # NOWE: globalny handler błędów ujednolicający format JSON do
-    # {"error": {"code": ..., "message": ..., "timestamp": ...}}
-    # zgodnie z docs/c2b/integration/INFO.md.
-    'EXCEPTION_HANDLER': 'common.exceptions.klik_exception_handler',
 }
 # ============================================================
 # Password validation

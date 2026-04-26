@@ -9,7 +9,7 @@ Pokrywamy:
 """
 
 import pytest
-from rest_framework import exceptions, status
+from rest_framework import status
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -20,9 +20,9 @@ from rest_framework.response import Response
 from rest_framework.test import APIClient, APIRequestFactory
 
 from banks.authentication import (
-    BankInactive,
     XKlikBankApiKeyAuthentication,
 )
+from common.exceptions import BankInactiveError, UnauthorizedError
 
 # ----------------------------------------------------------------------
 # Test view — używamy w testach integracyjnych
@@ -53,7 +53,7 @@ def auth():
 
 
 @pytest.mark.django_db
-class TestXKlikApiKeyAuthentication:
+class TestXKlikBankApiKeyAuthentication:
     def test_valid_key_returns_bank(self, factory, auth, make_bank):
         bank, plaintext = make_bank(active=True)
         request = factory.get('/dummy/', HTTP_X_KLIK_BANK_API_KEY=plaintext)
@@ -79,18 +79,17 @@ class TestXKlikApiKeyAuthentication:
         make_bank(active=True)
         request = factory.get('/dummy/', HTTP_X_KLIK_BANK_API_KEY='klik_definitely-not-real')
 
-        with pytest.raises(exceptions.AuthenticationFailed) as exc:
+        with pytest.raises(UnauthorizedError) as exc:
             auth.authenticate(request)
 
-        # Nie powinno być BankInactive — to zupełnie inny scenariusz
-        assert not isinstance(exc.value, BankInactive)
-        assert exc.value.detail.code == '401_UNAUTHORIZED'
+        assert not isinstance(exc.value, BankInactiveError)
+        assert exc.value.code == '401_UNAUTHORIZED'
 
     def test_inactive_bank_raises_bank_inactive(self, factory, auth, make_bank):
         _, plaintext = make_bank(active=False)
         request = factory.get('/dummy/', HTTP_X_KLIK_BANK_API_KEY=plaintext)
 
-        with pytest.raises(BankInactive) as exc:
+        with pytest.raises(BankInactiveError) as exc:
             auth.authenticate(request)
 
         assert exc.value.status_code == 403
@@ -106,7 +105,7 @@ class TestXKlikApiKeyAuthentication:
         bank, _ = make_bank(active=True)
         request = factory.get('/dummy/', HTTP_X_KLIK_BANK_API_KEY=bank.api_key_hash)
 
-        with pytest.raises(exceptions.AuthenticationFailed):
+        with pytest.raises(UnauthorizedError):
             auth.authenticate(request)
 
 

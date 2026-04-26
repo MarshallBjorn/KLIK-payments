@@ -6,7 +6,8 @@ import pytest
 from rest_framework.test import APIRequestFactory
 
 from banks.models import Bank
-from banks.permissions import BankHasP2PEnabled, P2PNotEnabled
+from banks.permissions import BankHasP2PEnabled
+from common.exceptions import P2PNotEnabledError
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ class TestBankHasP2PEnabled:
         request = factory.get('/dummy/')
         request.user = _bank(p2p_enabled=False)
 
-        with pytest.raises(P2PNotEnabled) as exc:
+        with pytest.raises(P2PNotEnabledError) as exc:
             perm.has_permission(request, view=None)
         assert exc.value.status_code == 403
         assert exc.value.default_code == '403_P2P_NOT_ENABLED'
