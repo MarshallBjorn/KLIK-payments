@@ -19,10 +19,11 @@
   - [Dokumentacja](#dokumentacja)
     - [Moduł C2B (Kody)](#moduł-c2b-kody)
     - [Moduł P2P (Telefony)](#moduł-p2p-telefony)
-  - [Quickstart](#quickstart)
-    - [Wymagania](#wymagania)
-    - [Uruchomienie środowiska developerskiego](#uruchomienie-środowiska-developerskiego)
     - [Testowanie integracji](#testowanie-integracji)
+  - [Development workflow](#development-workflow)
+    - [Pierwszy setup po klonowaniu repo](#pierwszy-setup-po-klonowaniu-repo)
+    - [Codzienna praca](#codzienna-praca)
+    - [CI](#ci)
   - [Status projektu](#status-projektu)
   - [Autorzy](#autorzy)
 
@@ -156,8 +157,8 @@ Projekt w trakcie implementacji. Stan poszczególnych modułów:
 | Dokumentacja C2B | ✅ kompletna |
 | Dokumentacja P2P | 🟡 minimum |
 | Szkielet Django | 🟡 w trakcie |
-| Moduł C2B — backend | 🔴 TBD |
-| Moduł P2P — backend | 🔴 TBD |
+| Moduł C2B — backend | 🟡 TBD |
+| Moduł P2P — backend | 🟡 TBD |
 | Dispatcher RTGS | 🔴 TBD |
 | Agent (Vue) | 🔴 TBD |
 | Mock banku i RTGS | 🔴 TBD |
