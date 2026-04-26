@@ -15,6 +15,10 @@ Kluczowe założenia:
 - `debt_limit` to maksymalne saldo netto debetowe banku w sesji rozliczeniowej.
   Przekroczenie powoduje że bank trafi do następnej sesji (mechanizm w
   module ledger, A5).
+- Moduły `c2b_enabled` / `p2p_enabled` decydują czy bank uczestniczy w
+  danym module. C2B jest defaultem (wszystkie obecne banki są C2B), P2P
+  trzeba aktywować świadomie — wymaga konfiguracji `webhook_url` dla
+  lookup-ów oraz akceptacji warunków P2P (osobne rozliczenia, opłaty).
 """
 
 import hashlib
@@ -105,6 +109,42 @@ class Bank(TimestampedModel):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Moduły — flagi włączenia w poszczególne produkty KLIK
+    # ------------------------------------------------------------------
+    # Bank może uczestniczyć w wybranym podzbiorze modułów. C2B (płatności
+    # kodem) jest historycznie pierwszym modułem i defaultem — wszystkie
+    # banki podłączone przed wprowadzeniem flag działają w C2B. P2P (przelewy
+    # po numerze telefonu, alias lookup) wymaga osobnej aktywacji: bank musi
+    # mieć webhook do lookup-ów aliasów oraz zaakceptować osobny cennik.
+
+    c2b_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            'Czy bank uczestniczy w module C2B (płatności kodem). '
+            'Wszystkie obecne banki domyślnie działają w C2B.'
+        ),
+    )
+
+    p2p_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            'Czy bank uczestniczy w module P2P (przelewy po numerze telefonu). '
+            'Aktywowane świadomie po podpisaniu warunków P2P i konfiguracji '
+            'lookupu aliasów.'
+        ),
+    )
+
+    p2p_lookup_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        default=0,
+        help_text=(
+            'Opłata za pojedynczy lookup aliasu P2P (w walucie banku). '
+            'Naliczana po stronie banku pytającego. 0 = bez opłaty.'
+        ),
+    )
+
     class Meta:
         verbose_name = 'Bank'
         verbose_name_plural = 'Banki'
@@ -123,6 +163,10 @@ class Bank(TimestampedModel):
             models.CheckConstraint(
                 name='bank_debt_limit_non_negative',
                 condition=models.Q(debt_limit__gte=0),
+            ),
+            models.CheckConstraint(
+                name='bank_p2p_lookup_fee_non_negative',
+                condition=models.Q(p2p_lookup_fee__gte=0),
             ),
         ]
 
