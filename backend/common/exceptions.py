@@ -30,10 +30,10 @@ from rest_framework.views import exception_handler
 def _error_body(code: str, message: str) -> dict:
     """Format ciała błędu zgodny z INFO.md."""
     return {
-        "error": {
-            "code": code,
-            "message": message,
-            "timestamp": timezone.now().isoformat(),
+        'error': {
+            'code': code,
+            'message': message,
+            'timestamp': timezone.now().isoformat(),
         }
     }
 
@@ -62,11 +62,11 @@ def klik_exception_handler(exc, context):
         # zwróci standardową 500-tkę — nie próbujemy się tu mądrzyć.
         return None
 
-    code = getattr(exc, "default_code", None) or str(response.status_code)
+    code = getattr(exc, 'default_code', None) or str(response.status_code)
 
     detail = response.data
-    if isinstance(detail, dict) and "detail" in detail:
-        message = str(detail["detail"])
+    if isinstance(detail, dict) and 'detail' in detail:
+        message = str(detail['detail'])
     elif isinstance(detail, list) and detail:
         # DRF czasem zwraca listę (np. lista błędów walidacji). Bierzemy pierwszy
         # czytelny — jak ktoś chce wszystkie, niech sięgnie do `response.data`.

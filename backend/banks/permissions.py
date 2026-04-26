@@ -25,10 +25,9 @@ class P2PNotEnabled(APIException):
 
     status_code = status.HTTP_403_FORBIDDEN
     default_detail = (
-        "Bank nie ma włączonego modułu P2P. "
-        "Skontaktuj się z operatorem KLIK żeby aktywować."
+        'Bank nie ma włączonego modułu P2P. ' 'Skontaktuj się z operatorem KLIK żeby aktywować.'
     )
-    default_code = "403_P2P_NOT_ENABLED"
+    default_code = '403_P2P_NOT_ENABLED'
 
 
 class BankHasP2PEnabled(BasePermission):
@@ -47,8 +46,8 @@ class BankHasP2PEnabled(BasePermission):
     def has_permission(self, request, view) -> bool:
         # `IsAuthenticated` powinien być wcześniej w stacku, ale defensywnie
         # sprawdzamy czy mamy obiekt Bank w request.user.
-        user = getattr(request, "user", None)
-        if user is None or not getattr(user, "is_authenticated", False):
+        user = getattr(request, 'user', None)
+        if user is None or not getattr(user, 'is_authenticated', False):
             # Niech DRF zwróci 401 przez stack permission/auth — nie rzucamy
             # P2PNotEnabled, bo to mylące.
             return False
@@ -56,7 +55,7 @@ class BankHasP2PEnabled(BasePermission):
         # `p2p_enabled` to BooleanField na modelu Bank (T1). getattr żeby nie
         # wybuchać brzydko jeśli ktoś przepuści tu np. Agent zamiast Bank-a
         # w testach — wtedy traktujemy jako "nie ma P2P".
-        if not getattr(user, "p2p_enabled", False):
+        if not getattr(user, 'p2p_enabled', False):
             raise P2PNotEnabled()
 
         return True

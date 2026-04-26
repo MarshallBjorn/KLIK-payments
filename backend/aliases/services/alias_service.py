@@ -41,10 +41,10 @@ from aliases.services.exceptions import (
 if TYPE_CHECKING:
     from banks.models import Bank
 
-logger = logging.getLogger("klik")
+logger = logging.getLogger('klik')
 
 # Klucze Redis. Prefix `aliases:` żeby nie kolidować z `code:` / `tx:`.
-LOOKUP_COUNTER_PREFIX = "aliases:lookups"
+LOOKUP_COUNTER_PREFIX = 'aliases:lookups'
 
 # 35 dni — z buforem ponad cykl rozliczeniowy P2P (30 dni).
 DAILY_COUNTER_TTL_SECONDS = 35 * 24 * 60 * 60
@@ -56,7 +56,7 @@ class AliasService:
     def __init__(self):
         # Bezpośredni klient Redis dla atomowych INCR. django.core.cache nie
         # wystawia INCR — symetria z CodeService.
-        self._redis = get_redis_connection("default")
+        self._redis = get_redis_connection('default')
 
     # ------------------------------------------------------------------
     # POST /aliases/register
@@ -101,14 +101,14 @@ class AliasService:
         except DjangoValidationError as exc:
             # Rozpoznajemy zone mismatch po kluczu w message_dict — model
             # świadomie pakuje błędy strefowe pod kluczem 'zone'.
-            error_dict = getattr(exc, "message_dict", {})
-            if "zone" in error_dict:
-                raise AliasZoneMismatchError(" ".join(error_dict["zone"])) from exc
+            error_dict = getattr(exc, 'message_dict', {})
+            if 'zone' in error_dict:
+                raise AliasZoneMismatchError(' '.join(error_dict['zone'])) from exc
             # Duplikat phone wykryty już na poziomie `validate_unique()`
             # w `full_clean()` (single-thread scenario). DB-level IntegrityError
             # poniżej obsługuje tylko race condition gdy dwa requesty przebiją
             # się przez validate_unique równolegle.
-            if "phone" in error_dict:
+            if 'phone' in error_dict:
                 raise AliasAlreadyRegisteredError(phone) from exc
             # Inne błędy walidacji (np. account_identifier mismatch dla US)
             # propagujemy dalej — widok zmapuje na 400 przez DRF default.
@@ -121,7 +121,7 @@ class AliasService:
             raise
 
         logger.info(
-            "Zarejestrowano alias phone=%s bank=%s zone=%s",
+            'Zarejestrowano alias phone=%s bank=%s zone=%s',
             phone,
             bank.id,
             zone,
@@ -151,7 +151,7 @@ class AliasService:
             nie podlegają opłacie — bank nie płaci za nieudany lookup.
         """
         try:
-            alias = Alias.objects.select_related("bank").get(phone=phone)
+            alias = Alias.objects.select_related('bank').get(phone=phone)
         except Alias.DoesNotExist as exc:
             raise AliasDoesNotExistError(phone) from exc
 
@@ -164,7 +164,7 @@ class AliasService:
             # Szeroki except świadomie — jakikolwiek problem z Redisem
             # (connection error, timeout, OOM) nie powinien zwalić lookup-u.
             logger.exception(
-                "Nie udało się zainkrementować counter lookup-u dla bank=%s phone=%s",
+                'Nie udało się zainkrementować counter lookup-u dla bank=%s phone=%s',
                 querying_bank.id,
                 phone,
             )
@@ -198,7 +198,7 @@ class AliasService:
             raise AliasOwnershipError(phone=phone, bank_id=bank.id)
 
         alias.delete()
-        logger.info("Usunięto alias phone=%s bank=%s", phone, bank.id)
+        logger.info('Usunięto alias phone=%s bank=%s', phone, bank.id)
 
     # ------------------------------------------------------------------
     # Counter — read API dla testów/rozliczeń
@@ -228,7 +228,7 @@ class AliasService:
         Pipeline w jednym round-tripie do Redisa. TTL ustawiamy tylko na
         dziennym kluczu — kumulatywny żyje w nieskończoność (do flush DB).
         """
-        today = datetime.now(UTC).strftime("%Y%m%d")
+        today = datetime.now(UTC).strftime('%Y%m%d')
         daily_key = self._daily_key(bank_id, today)
         total_key = self._total_key(bank_id)
 
@@ -243,11 +243,11 @@ class AliasService:
 
     @staticmethod
     def _daily_key(bank_id, day: str) -> str:
-        return f"{LOOKUP_COUNTER_PREFIX}:{bank_id}:{day}"
+        return f'{LOOKUP_COUNTER_PREFIX}:{bank_id}:{day}'
 
     @staticmethod
     def _total_key(bank_id) -> str:
-        return f"{LOOKUP_COUNTER_PREFIX}:{bank_id}:total"
+        return f'{LOOKUP_COUNTER_PREFIX}:{bank_id}:total'
 
 
 # ----------------------------------------------------------------------
@@ -262,4 +262,4 @@ def _is_unique_phone_violation(exc: IntegrityError) -> bool:
     matchowanie generycznych komunikatów Postgres.
     """
     msg = str(exc).lower()
-    return "alias_phone_unique" in msg or "phone" in msg
+    return 'alias_phone_unique' in msg or 'phone' in msg

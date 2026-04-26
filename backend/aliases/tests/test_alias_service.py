@@ -27,15 +27,15 @@ class TestRegister:
         bank, _ = bank_pl_p2p
         alias = service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
         assert alias.id is not None
-        assert alias.phone == "+48501234567"
+        assert alias.phone == '+48501234567'
         assert alias.bank_id == bank.id
-        assert alias.zone == "PL"
+        assert alias.zone == 'PL'
         assert alias.account_identifier == PL_IBAN
 
         # I rzeczywiście jest w DB
@@ -45,19 +45,19 @@ class TestRegister:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
         with pytest.raises(AliasAlreadyRegisteredError) as exc:
             service.register(
                 bank=bank,
-                phone="+48501234567",
+                phone='+48501234567',
                 account_identifier=PL_IBAN,
-                zone="PL",
+                zone='PL',
             )
-        assert exc.value.phone == "+48501234567"
+        assert exc.value.phone == '+48501234567'
 
     def test_phone_prefix_zone_mismatch_raises(self, service, bank_pl_p2p):
         """+48 wskazuje PL, ale rejestracja w UK → ZoneMismatch."""
@@ -67,9 +67,9 @@ class TestRegister:
         with pytest.raises(AliasZoneMismatchError):
             service.register(
                 bank=bank,
-                phone="+48501234567",
+                phone='+48501234567',
                 account_identifier=PL_IBAN,
-                zone="UK",
+                zone='UK',
             )
 
     def test_phone_zone_vs_bank_zone_mismatch_raises(self, service, bank_uk_p2p):
@@ -78,9 +78,9 @@ class TestRegister:
         with pytest.raises(AliasZoneMismatchError):
             service.register(
                 bank=bank_uk,
-                phone="+48501234567",
+                phone='+48501234567',
                 account_identifier=PL_IBAN,
-                zone="PL",
+                zone='PL',
             )
 
 
@@ -90,38 +90,38 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
-        result = service.lookup_for_bank(querying_bank=bank, phone="+48501234567")
+        result = service.lookup_for_bank(querying_bank=bank, phone='+48501234567')
 
-        assert result.phone == "+48501234567"
+        assert result.phone == '+48501234567'
         assert result.bank_id == bank.id
 
     def test_missing_phone_raises(self, service, bank_pl_p2p):
         bank, _ = bank_pl_p2p
         with pytest.raises(AliasDoesNotExistError) as exc:
-            service.lookup_for_bank(querying_bank=bank, phone="+48999999999")
-        assert exc.value.phone == "+48999999999"
+            service.lookup_for_bank(querying_bank=bank, phone='+48999999999')
+        assert exc.value.phone == '+48999999999'
 
     def test_increments_counter_on_success(self, service, bank_pl_p2p, make_p2p_bank):
         # Rejestracja na bank A, lookup z banku B — to typowy P2P use case
         bank_a, _ = bank_pl_p2p
-        bank_b, _ = make_p2p_bank(name="Querying Bank PL")
+        bank_b, _ = make_p2p_bank(name='Querying Bank PL')
 
         service.register(
             bank=bank_a,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
         # Pre-condition: counter dla bank_b = 0
         assert service.get_lookup_count(bank_b.id) == 0
 
-        service.lookup_for_bank(querying_bank=bank_b, phone="+48501234567")
+        service.lookup_for_bank(querying_bank=bank_b, phone='+48501234567')
 
         # Counter total inkrementowany dla pytającego (bank_b), nie dla
         # właściciela aliasu (bank_a).
@@ -132,13 +132,13 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
         for expected in range(1, 4):
-            service.lookup_for_bank(querying_bank=bank, phone="+48501234567")
+            service.lookup_for_bank(querying_bank=bank, phone='+48501234567')
             assert service.get_lookup_count(bank.id) == expected
 
     def test_counter_not_incremented_on_miss(self, service, bank_pl_p2p):
@@ -146,7 +146,7 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
 
         with pytest.raises(AliasDoesNotExistError):
-            service.lookup_for_bank(querying_bank=bank, phone="+48999999999")
+            service.lookup_for_bank(querying_bank=bank, phone='+48999999999')
 
         assert service.get_lookup_count(bank.id) == 0
 
@@ -154,13 +154,13 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
-        service.lookup_for_bank(querying_bank=bank, phone="+48501234567")
+        service.lookup_for_bank(querying_bank=bank, phone='+48501234567')
 
-        today = datetime.now(UTC).strftime("%Y%m%d")
+        today = datetime.now(UTC).strftime('%Y%m%d')
         assert service.get_lookup_count(bank.id, day=today) == 1
 
     def test_daily_counter_has_ttl(self, service, bank_pl_p2p):
@@ -168,14 +168,14 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
-        service.lookup_for_bank(querying_bank=bank, phone="+48501234567")
+        service.lookup_for_bank(querying_bank=bank, phone='+48501234567')
 
-        today = datetime.now(UTC).strftime("%Y%m%d")
-        key = f"{LOOKUP_COUNTER_PREFIX}:{bank.id}:{today}"
+        today = datetime.now(UTC).strftime('%Y%m%d')
+        key = f'{LOOKUP_COUNTER_PREFIX}:{bank.id}:{today}'
         ttl = service._redis.ttl(key)
         # 35 dni z buforem — dokładna wartość nieistotna, byle TTL > 0 i sensowny
         assert ttl > 0
@@ -186,13 +186,13 @@ class TestLookupForBank:
         bank, _ = bank_pl_p2p
         service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
-        service.lookup_for_bank(querying_bank=bank, phone="+48501234567")
+        service.lookup_for_bank(querying_bank=bank, phone='+48501234567')
 
-        key = f"{LOOKUP_COUNTER_PREFIX}:{bank.id}:total"
+        key = f'{LOOKUP_COUNTER_PREFIX}:{bank.id}:total'
         # -1 = brak TTL w konwencji Redisa
         assert service._redis.ttl(key) == -1
 
@@ -203,36 +203,36 @@ class TestUnregister:
         bank, _ = bank_pl_p2p
         alias = service.register(
             bank=bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
-        service.unregister(bank=bank, phone="+48501234567")
+        service.unregister(bank=bank, phone='+48501234567')
 
         assert not Alias.objects.filter(pk=alias.pk).exists()
 
     def test_missing_phone_raises(self, service, bank_pl_p2p):
         bank, _ = bank_pl_p2p
         with pytest.raises(AliasDoesNotExistError):
-            service.unregister(bank=bank, phone="+48999999999")
+            service.unregister(bank=bank, phone='+48999999999')
 
     def test_other_bank_cannot_unregister(self, service, bank_pl_p2p, make_p2p_bank):
         owner_bank, _ = bank_pl_p2p
-        other_bank, _ = make_p2p_bank(name="Sneaky Bank")
+        other_bank, _ = make_p2p_bank(name='Sneaky Bank')
 
         service.register(
             bank=owner_bank,
-            phone="+48501234567",
+            phone='+48501234567',
             account_identifier=PL_IBAN,
-            zone="PL",
+            zone='PL',
         )
 
         with pytest.raises(AliasOwnershipError) as exc:
-            service.unregister(bank=other_bank, phone="+48501234567")
+            service.unregister(bank=other_bank, phone='+48501234567')
 
-        assert exc.value.phone == "+48501234567"
+        assert exc.value.phone == '+48501234567'
         assert exc.value.bank_id == other_bank.id
 
         # Alias nie został usunięty
-        assert Alias.objects.filter(phone="+48501234567").exists()
+        assert Alias.objects.filter(phone='+48501234567').exists()

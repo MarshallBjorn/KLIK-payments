@@ -29,7 +29,9 @@ from rest_framework.authentication import BaseAuthentication
 
 from banks.models import Bank, hash_api_key
 
-API_KEY_HEADER = "HTTP_X_KLIK_BANK_API_KEY"  # Django wystawia nagłówki jako HTTP_* pragma: allowlist secret
+API_KEY_HEADER = (
+    'HTTP_X_KLIK_BANK_API_KEY'  # Django wystawia nagłówki jako HTTP_* pragma: allowlist secret
+)
 
 
 class BankInactive(exceptions.AuthenticationFailed):
@@ -41,8 +43,8 @@ class BankInactive(exceptions.AuthenticationFailed):
     """
 
     status_code = 403
-    default_detail = "Bank zablokowany (active=False)."
-    default_code = "403_BANK_INACTIVE"
+    default_detail = 'Bank zablokowany (active=False).'
+    default_code = '403_BANK_INACTIVE'
 
 
 class XKlikBankApiKeyAuthentication(BaseAuthentication):
@@ -52,7 +54,7 @@ class XKlikBankApiKeyAuthentication(BaseAuthentication):
     `request.user.zone` żeby sprawdzić strefę nadawcy.
     """
 
-    keyword = "X-KLIK-Bank-Api-Key"
+    keyword = 'X-KLIK-Bank-Api-Key'
 
     def authenticate(self, request):
         plaintext = request.META.get(API_KEY_HEADER)
@@ -66,8 +68,8 @@ class XKlikBankApiKeyAuthentication(BaseAuthentication):
             bank = Bank.objects.get(api_key_hash=hash_api_key(plaintext))
         except Bank.DoesNotExist as exc:
             raise exceptions.AuthenticationFailed(
-                detail="Nieprawidłowy klucz API.",
-                code="401_UNAUTHORIZED",
+                detail='Nieprawidłowy klucz API.',
+                code='401_UNAUTHORIZED',
             ) from exc
 
         if not bank.active:
@@ -93,12 +95,12 @@ class XKlikBankApiKeyAuthentication(BaseAuthentication):
 
 
 def __getattr__(name: str):
-    if name == "XKlikApiKeyAuthentication":
+    if name == 'XKlikApiKeyAuthentication':
         warnings.warn(
-            "XKlikApiKeyAuthentication zostało zmienione na "
-            "XKlikBankApiKeyAuthentication. Stary alias zostanie usunięty.",
+            'XKlikApiKeyAuthentication zostało zmienione na '
+            'XKlikBankApiKeyAuthentication. Stary alias zostanie usunięty.',
             DeprecationWarning,
             stacklevel=2,
         )
         return XKlikBankApiKeyAuthentication
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

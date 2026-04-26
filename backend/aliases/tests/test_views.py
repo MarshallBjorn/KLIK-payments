@@ -21,15 +21,15 @@ from rest_framework import status
 from aliases.models import Alias
 from aliases.tests.conftest import PL_IBAN
 
-REGISTER_URL = "/api/v1/aliases/register"
+REGISTER_URL = '/api/v1/aliases/register'
 
 
 def _lookup_url(phone: str) -> str:
-    return f"/api/v1/aliases/lookup/{phone}"
+    return f'/api/v1/aliases/lookup/{phone}'
 
 
 def _delete_url(phone: str) -> str:
-    return f"/api/v1/aliases/{phone}"
+    return f'/api/v1/aliases/{phone}'
 
 
 def _assert_error_envelope(response, *, expected_code: str) -> None:
@@ -38,11 +38,11 @@ def _assert_error_envelope(response, *, expected_code: str) -> None:
     Nie matchujemy konkretnego komunikatu — to lokalizacja, może się zmienić.
     Pilnujemy tylko strukturalnego kontraktu.
     """
-    assert "error" in response.data, f"Expected error envelope, got {response.data}"
-    err = response.data["error"]
-    assert err["code"] == expected_code
-    assert isinstance(err["message"], str) and err["message"]
-    assert "timestamp" in err
+    assert 'error' in response.data, f'Expected error envelope, got {response.data}'
+    err = response.data['error']
+    assert err['code'] == expected_code
+    assert isinstance(err['message'], str) and err['message']
+    assert 'timestamp' in err
 
 
 # ---------------------------------------------------------------------------
@@ -58,20 +58,20 @@ class TestRegisterEndpoint:
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.data["phone"] == "+48501234567"
-        assert "alias_id" in response.data
-        assert "registered_at" in response.data
+        assert response.data['phone'] == '+48501234567'
+        assert 'alias_id' in response.data
+        assert 'registered_at' in response.data
 
         # Persistence check
-        alias = Alias.objects.get(phone="+48501234567")
+        alias = Alias.objects.get(phone='+48501234567')
         assert alias.bank_id == bank.id
 
     def test_201_with_explicit_account_identifier(self, auth_client):
@@ -81,11 +81,11 @@ class TestRegisterEndpoint:
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "account_identifier": PL_IBAN,
-                "zone": "PL",
+                'phone': '+48501234567',
+                'account_identifier': PL_IBAN,
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -93,25 +93,25 @@ class TestRegisterEndpoint:
         """Brak wymaganego pola `phone`."""
         response = auth_client.post(
             REGISTER_URL,
-            data={"zone": "PL", "iban": "PL61109010140000071219812874"},
-            format="json",
+            data={'zone': 'PL', 'iban': 'PL61109010140000071219812874'},
+            format='json',
         )
         # DRF default dla ValidationError to 400 — nasz klucz code to '400'
         # (fallback ze status code, bo DRF ValidationError nie ma
         # default_code='400_BAD_REQUEST').
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "error" in response.data
+        assert 'error' in response.data
 
     def test_400_when_both_iban_and_account_identifier(self, auth_client):
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "account_identifier": PL_IBAN,
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'account_identifier': PL_IBAN,
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -119,27 +119,29 @@ class TestRegisterEndpoint:
         response = api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_401_wrong_api_key(self, api_client):
-        api_client.credentials(HTTP_X_KLIK_BANK_API_KEY="klik_definitely-not-real")
+        api_client.credentials(
+            HTTP_X_KLIK_BANK_API_KEY='klik_definitely-not-real'  # pragma: allowlist secret
+        )
         response = api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        _assert_error_envelope(response, expected_code="authentication_failed")
+        _assert_error_envelope(response, expected_code='authentication_failed')
 
     def test_403_bank_inactive(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(active=False)
@@ -148,14 +150,14 @@ class TestRegisterEndpoint:
         response = api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_BANK_INACTIVE")
+        _assert_error_envelope(response, expected_code='403_BANK_INACTIVE')
 
     def test_403_p2p_not_enabled(self, api_client, make_p2p_bank):
         """Bank aktywny, klucz OK — ale flaga P2P=False → 403_P2P_NOT_ENABLED."""
@@ -165,39 +167,39 @@ class TestRegisterEndpoint:
         response = api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_P2P_NOT_ENABLED")
+        _assert_error_envelope(response, expected_code='403_P2P_NOT_ENABLED')
 
     def test_409_alias_already_exists(self, auth_client):
         # Pierwsza rejestracja — happy
         auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
         # Druga z tym samym phone — 409
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_409_CONFLICT
-        _assert_error_envelope(response, expected_code="409_ALIAS_ALREADY_EXISTS")
+        _assert_error_envelope(response, expected_code='409_ALIAS_ALREADY_EXISTS')
 
     def test_422_zone_mismatch_phone_prefix(self, api_client, bank_uk_p2p):
         """Numer +48 (PL prefix) rejestrowany w UK banku → 422."""
@@ -207,28 +209,28 @@ class TestRegisterEndpoint:
         response = api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "GB82WEST12345698765432",
-                "zone": "UK",
+                'phone': '+48501234567',
+                'iban': 'GB82WEST12345698765432',
+                'zone': 'UK',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        _assert_error_envelope(response, expected_code="422_ZONE_MISMATCH")
+        _assert_error_envelope(response, expected_code='422_ZONE_MISMATCH')
 
     def test_422_zone_mismatch_zone_vs_bank_zone(self, auth_client):
         """Bank PL, ale klient wysyła zone=UK → 422."""
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+44501234567",
-                "iban": "GB82WEST12345698765432",
-                "zone": "UK",
+                'phone': '+44501234567',
+                'iban': 'GB82WEST12345698765432',
+                'zone': 'UK',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        _assert_error_envelope(response, expected_code="422_ZONE_MISMATCH")
+        _assert_error_envelope(response, expected_code='422_ZONE_MISMATCH')
 
 
 # ---------------------------------------------------------------------------
@@ -244,19 +246,19 @@ class TestLookupEndpoint:
         auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
-        response = auth_client.get(_lookup_url("+48501234567"))
+        response = auth_client.get(_lookup_url('+48501234567'))
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["phone"] == "+48501234567"
-        assert response.data["bank_id"] == str(bank.id)
-        assert response.data["iban"] == "PL61109010140000071219812874"
+        assert response.data['phone'] == '+48501234567'
+        assert response.data['bank_id'] == str(bank.id)
+        assert response.data['iban'] == 'PL61109010140000071219812874'
 
     def test_200_increments_counter(self, auth_client, bank_pl_p2p):
         from aliases.services import AliasService
@@ -265,82 +267,82 @@ class TestLookupEndpoint:
         auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
         service = AliasService()
         assert service.get_lookup_count(bank.id) == 0
 
-        auth_client.get(_lookup_url("+48501234567"))
+        auth_client.get(_lookup_url('+48501234567'))
         assert service.get_lookup_count(bank.id) == 1
 
-        auth_client.get(_lookup_url("+48501234567"))
+        auth_client.get(_lookup_url('+48501234567'))
         assert service.get_lookup_count(bank.id) == 2
 
     def test_404_not_inc_counter(self, auth_client, bank_pl_p2p):
         from aliases.services import AliasService
 
         bank, _ = bank_pl_p2p
-        response = auth_client.get(_lookup_url("+48999999999"))
+        response = auth_client.get(_lookup_url('+48999999999'))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
         # Counter nie inkrementowany dla 404 — kontrakt z T2 ("po 200")
         assert AliasService().get_lookup_count(bank.id) == 0
 
     def test_401_no_api_key(self, api_client):
-        response = api_client.get(_lookup_url("+48501234567"))
+        response = api_client.get(_lookup_url('+48501234567'))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_403_bank_inactive(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(active=False)
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext)
 
-        response = api_client.get(_lookup_url("+48501234567"))
+        response = api_client.get(_lookup_url('+48501234567'))
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_BANK_INACTIVE")
+        _assert_error_envelope(response, expected_code='403_BANK_INACTIVE')
 
     def test_403_p2p_not_enabled(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(p2p_enabled=False)
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext)
 
-        response = api_client.get(_lookup_url("+48501234567"))
+        response = api_client.get(_lookup_url('+48501234567'))
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_P2P_NOT_ENABLED")
+        _assert_error_envelope(response, expected_code='403_P2P_NOT_ENABLED')
 
     def test_404_alias_not_found(self, auth_client):
-        response = auth_client.get(_lookup_url("+48999999999"))
+        response = auth_client.get(_lookup_url('+48999999999'))
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        _assert_error_envelope(response, expected_code="404_ALIAS_NOT_FOUND")
+        _assert_error_envelope(response, expected_code='404_ALIAS_NOT_FOUND')
 
     def test_lookup_works_across_banks(self, api_client, bank_pl_p2p, make_p2p_bank):
         """Sanity: bank A może lookupować alias zarejestrowany przez bank B
         (P2P zakłada że *każdy* bank z P2P może pytać).
         """
         bank_a, plaintext_a = bank_pl_p2p
-        bank_b, plaintext_b = make_p2p_bank(name="Bank B PL")
+        bank_b, plaintext_b = make_p2p_bank(name='Bank B PL')
 
         # Bank A rejestruje
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext_a)
         api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
         # Bank B lookup-uje
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext_b)
-        response = api_client.get(_lookup_url("+48501234567"))
+        response = api_client.get(_lookup_url('+48501234567'))
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["bank_id"] == str(bank_a.id)
+        assert response.data['bank_id'] == str(bank_a.id)
 
 
 # ---------------------------------------------------------------------------
@@ -354,69 +356,69 @@ class TestDeleteEndpoint:
         auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
-        response = auth_client.delete(_delete_url("+48501234567"))
+        response = auth_client.delete(_delete_url('+48501234567'))
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not Alias.objects.filter(phone="+48501234567").exists()
+        assert not Alias.objects.filter(phone='+48501234567').exists()
 
     def test_401_no_api_key(self, api_client):
-        response = api_client.delete(_delete_url("+48501234567"))
+        response = api_client.delete(_delete_url('+48501234567'))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_403_bank_inactive(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(active=False)
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext)
 
-        response = api_client.delete(_delete_url("+48501234567"))
+        response = api_client.delete(_delete_url('+48501234567'))
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_BANK_INACTIVE")
+        _assert_error_envelope(response, expected_code='403_BANK_INACTIVE')
 
     def test_403_p2p_not_enabled(self, api_client, make_p2p_bank):
         _, plaintext = make_p2p_bank(p2p_enabled=False)
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext)
 
-        response = api_client.delete(_delete_url("+48501234567"))
+        response = api_client.delete(_delete_url('+48501234567'))
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_P2P_NOT_ENABLED")
+        _assert_error_envelope(response, expected_code='403_P2P_NOT_ENABLED')
 
     def test_403_insufficient_permissions(self, api_client, bank_pl_p2p, make_p2p_bank):
         """Bank A rejestruje alias, bank B próbuje go usunąć → 403."""
         _, plaintext_a = bank_pl_p2p
-        _, plaintext_b = make_p2p_bank(name="Sneaky Bank")
+        _, plaintext_b = make_p2p_bank(name='Sneaky Bank')
 
         # Bank A rejestruje
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext_a)
         api_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
 
         # Bank B próbuje usunąć
         api_client.credentials(HTTP_X_KLIK_BANK_API_KEY=plaintext_b)
-        response = api_client.delete(_delete_url("+48501234567"))
+        response = api_client.delete(_delete_url('+48501234567'))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        _assert_error_envelope(response, expected_code="403_INSUFFICIENT_PERMISSIONS")
+        _assert_error_envelope(response, expected_code='403_INSUFFICIENT_PERMISSIONS')
 
         # Alias nie został skasowany
-        assert Alias.objects.filter(phone="+48501234567").exists()
+        assert Alias.objects.filter(phone='+48501234567').exists()
 
     def test_404_alias_not_found(self, auth_client):
-        response = auth_client.delete(_delete_url("+48999999999"))
+        response = auth_client.delete(_delete_url('+48999999999'))
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        _assert_error_envelope(response, expected_code="404_ALIAS_NOT_FOUND")
+        _assert_error_envelope(response, expected_code='404_ALIAS_NOT_FOUND')
 
 
 # ---------------------------------------------------------------------------
@@ -434,31 +436,31 @@ class TestErrorEnvelopeFormat:
     """
 
     def test_404_envelope_complete(self, auth_client):
-        response = auth_client.delete(_delete_url("+48999999999"))
+        response = auth_client.delete(_delete_url('+48999999999'))
         assert response.status_code == 404
         body = response.data
-        assert set(body.keys()) == {"error"}
-        assert set(body["error"].keys()) == {"code", "message", "timestamp"}
-        assert body["error"]["code"] == "404_ALIAS_NOT_FOUND"
+        assert set(body.keys()) == {'error'}
+        assert set(body['error'].keys()) == {'code', 'message', 'timestamp'}
+        assert body['error']['code'] == '404_ALIAS_NOT_FOUND'
 
     def test_409_envelope_complete(self, auth_client):
         auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         response = auth_client.post(
             REGISTER_URL,
             data={
-                "phone": "+48501234567",
-                "iban": "PL61109010140000071219812874",
-                "zone": "PL",
+                'phone': '+48501234567',
+                'iban': 'PL61109010140000071219812874',
+                'zone': 'PL',
             },
-            format="json",
+            format='json',
         )
         assert response.status_code == 409
-        assert response.data["error"]["code"] == "409_ALIAS_ALREADY_EXISTS"
+        assert response.data['error']['code'] == '409_ALIAS_ALREADY_EXISTS'

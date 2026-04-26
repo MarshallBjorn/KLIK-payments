@@ -18,7 +18,7 @@ class AliasAlreadyRegisteredError(Exception):
 
     def __init__(self, phone: str):
         self.phone = phone
-        super().__init__(f"Numer {phone} jest już zarejestrowany w KLIK.")
+        super().__init__(f'Numer {phone} jest już zarejestrowany w KLIK.')
 
 
 class AliasDoesNotExistError(Exception):
@@ -26,7 +26,7 @@ class AliasDoesNotExistError(Exception):
 
     def __init__(self, phone: str):
         self.phone = phone
-        super().__init__(f"Brak aliasu dla numeru {phone}.")
+        super().__init__(f'Brak aliasu dla numeru {phone}.')
 
 
 class AliasZoneMismatchError(Exception):
@@ -49,4 +49,4 @@ class AliasOwnershipError(Exception):
     def __init__(self, phone: str, bank_id):
         self.phone = phone
         self.bank_id = bank_id
-        super().__init__(f"Bank {bank_id} nie jest właścicielem aliasu dla {phone}.")
+        super().__init__(f'Bank {bank_id} nie jest właścicielem aliasu dla {phone}.')

@@ -57,7 +57,7 @@ from banks.permissions import BankHasP2PEnabled
 # ---------------------------------------------------------------------------
 
 
-@api_view(["POST"])
+@api_view(['POST'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
 def alias_register(request):
@@ -85,9 +85,9 @@ def alias_register(request):
     try:
         alias = service.register(
             bank=request.user,
-            phone=data["phone"],
-            account_identifier=data["account_identifier"],
-            zone=data["zone"],
+            phone=data['phone'],
+            account_identifier=data['account_identifier'],
+            zone=data['zone'],
         )
     except AliasZoneMismatchError as exc:
         raise ZoneMismatch(detail=exc.reason) from exc
@@ -103,7 +103,7 @@ def alias_register(request):
 # ---------------------------------------------------------------------------
 
 
-@api_view(["GET"])
+@api_view(['GET'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
 def alias_lookup(request, phone: str):
@@ -136,7 +136,7 @@ def alias_lookup(request, phone: str):
 # ---------------------------------------------------------------------------
 
 
-@api_view(["DELETE"])
+@api_view(['DELETE'])
 @authentication_classes([XKlikBankApiKeyAuthentication])
 @permission_classes([IsAuthenticated, BankHasP2PEnabled])
 def alias_delete(request, phone: str):
