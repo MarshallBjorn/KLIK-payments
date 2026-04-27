@@ -156,6 +156,27 @@ class CurrencyMismatchError(KlikAPIException):
     default_detail = 'Niezgodność walut.'
 
 
+class NoActiveMSCError(KlikAPIException):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    default_code = '422_NO_ACTIVE_MSC'
+    default_detail = 'Agent nie ma aktywnej umowy MSC. Skontaktuj się z operatorem.'
+
+
+class TransactionAlreadyClosedError(KlikAPIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = '409_TRANSACTION_ALREADY_CLOSED'
+    default_detail = 'Transakcja jest już zamkniętanie i nie może być potwierdzona ani odrzucona.'
+
+
+class ConfirmDecisionConflictError(KlikAPIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = '409_CONFIRM_DECISION_CONFLICT'
+    default_detail = (
+        'Transakcja została wcześniej potwierdzona z inną decyzją. '
+        'Replay z odmienną decyzją jest niedozwolony.'
+    )
+
+
 # ---------------------------------------------------------------------------
 # Custom DRF exception handler
 # ---------------------------------------------------------------------------
