@@ -29,7 +29,7 @@ from ledger.exceptions import (
 from ledger.models import LedgerEntry, SettlementSession, SettlementTransfer
 from ledger.services.netting import Obligation, net_obligations
 
-logger = logging.getLogger('klik')
+logger = logging.getLogger("klik")
 
 ACTIVE_SESSION_STATUSES = (
     SettlementSessionStatus.OPEN,
@@ -44,7 +44,7 @@ ACTIVE_SESSION_STATUSES = (
 # (patrz aliases/services/alias_service.py, LOOKUP_COUNTER_PREFIX).
 # Tutaj używamy tego samego prefixu — accrual MUSI czytać te same klucze co
 # inkrement, inaczej naliczanie nigdy nic nie znajdzie.
-LOOKUP_COUNTER_PREFIX = 'aliases:lookups'
+LOOKUP_COUNTER_PREFIX = "aliases:lookups"
 
 
 class LedgerService:
@@ -81,11 +81,13 @@ class LedgerService:
         ):
             raise FeesNotCalculatedError(transaction.id)
 
-        existing = list(LedgerEntry.objects.filter(source_ref=transaction.idempotency_key))
+        existing = list(
+            LedgerEntry.objects.filter(source_ref=transaction.idempotency_key)
+        )
         if existing:
             logger.info(
-                'record_c2b_transaction: entries już istnieją dla source_ref=%s, '
-                'zwracam istniejące (%d entries).',
+                "record_c2b_transaction: entries już istnieją dla source_ref=%s, "
+                "zwracam istniejące (%d entries).",
                 transaction.idempotency_key,
                 len(existing),
             )
@@ -146,7 +148,7 @@ class LedgerService:
             )
 
         logger.info(
-            'record_c2b_transaction: utworzono %d entries dla tx=%s (on_us=%s).',
+            "record_c2b_transaction: utworzono %d entries dla tx=%s (on_us=%s).",
             len(entries),
             transaction.id,
             transaction.is_on_us,
@@ -192,13 +194,13 @@ class LedgerService:
         if target_date is None:
             target_date = timezone.now().date()
 
-        date_str = target_date.strftime('%Y%m%d')
-        redis = get_redis_connection('default')
+        date_str = target_date.strftime("%Y%m%d")
+        redis = get_redis_connection("default")
 
         # SCAN zamiast KEYS — KEYS blokuje cały Redis (single-thread). Dla
         # rejestru aliasów to akceptowalne (małe N), ale standard jest taki
         # że SCAN-em się chodzi po kluczach produkcyjnych.
-        pattern = f'{LOOKUP_COUNTER_PREFIX}:*:{date_str}'
+        pattern = f"{LOOKUP_COUNTER_PREFIX}:*:{date_str}"
         cursor = 0
         keys: list[bytes] = []
         while True:
@@ -209,7 +211,7 @@ class LedgerService:
 
         if not keys:
             logger.info(
-                'record_p2p_lookup_fees: brak counterów dla %s — nic do naliczenia',
+                "record_p2p_lookup_fees: brak counterów dla %s — nic do naliczenia",
                 target_date,
             )
             return []
@@ -220,11 +222,11 @@ class LedgerService:
         skipped_unknown_bank = 0
 
         for raw_key in keys:
-            key = raw_key.decode('utf-8') if isinstance(raw_key, bytes) else raw_key
+            key = raw_key.decode("utf-8") if isinstance(raw_key, bytes) else raw_key
             # Format: aliases:lookups:{bank_id}:YYYYMMDD
-            parts = key.split(':')
+            parts = key.split(":")
             if len(parts) != 4:
-                logger.warning('record_p2p_lookup_fees: nieprawidłowy klucz %s', key)
+                logger.warning("record_p2p_lookup_fees: nieprawidłowy klucz %s", key)
                 continue
             bank_id_str = parts[2]
 
@@ -235,7 +237,7 @@ class LedgerService:
                 count = int(count_raw)
             except (TypeError, ValueError):
                 logger.warning(
-                    'record_p2p_lookup_fees: niepoprawna wartość counter dla %s: %r',
+                    "record_p2p_lookup_fees: niepoprawna wartość counter dla %s: %r",
                     key,
                     count_raw,
                 )
@@ -248,15 +250,15 @@ class LedgerService:
                 bank = Bank.objects.get(id=bank_id_str)
             except Bank.DoesNotExist:
                 logger.error(
-                    'record_p2p_lookup_fees: counter dla nieistniejącego banku %s',
+                    "record_p2p_lookup_fees: counter dla nieistniejącego banku %s",
                     bank_id_str,
                 )
                 skipped_unknown_bank += 1
                 continue
 
-            if bank.p2p_lookup_fee <= Decimal('0'):
+            if bank.p2p_lookup_fee <= Decimal("0"):
                 logger.debug(
-                    'record_p2p_lookup_fees: bank %s ma p2p_lookup_fee=0 — pomijam',
+                    "record_p2p_lookup_fees: bank %s ma p2p_lookup_fee=0 — pomijam",
                     bank.id,
                 )
                 skipped_zero_fee += 1
@@ -265,15 +267,15 @@ class LedgerService:
                 redis.delete(key)
                 continue
 
-            total_fee = (Decimal(count) * bank.p2p_lookup_fee).quantize(Decimal('0.01'))
-            if total_fee <= Decimal('0'):
+            total_fee = (Decimal(count) * bank.p2p_lookup_fee).quantize(Decimal("0.01"))
+            if total_fee <= Decimal("0"):
                 # Po quantyzacji do groszy może wyjść 0 (np. 1 lookup × 0.0001).
                 # Wtedy też pomijamy.
                 skipped_zero_fee += 1
                 redis.delete(key)
                 continue
 
-            source_ref = f'p2p:{bank.id}:{date_str}'
+            source_ref = f"p2p:{bank.id}:{date_str}"
 
             # Idempotency: drugi run nie tworzy duplikatu
             if LedgerEntry.objects.filter(source_ref=source_ref).exists():
@@ -301,8 +303,8 @@ class LedgerService:
             redis.delete(key)
 
         logger.info(
-            'record_p2p_lookup_fees(%s): utworzono %d entries '
-            '(skipped: %d zero fee, %d existing, %d unknown bank)',
+            "record_p2p_lookup_fees(%s): utworzono %d entries "
+            "(skipped: %d zero fee, %d existing, %d unknown bank)",
             target_date,
             len(created),
             skipped_zero_fee,
@@ -336,7 +338,9 @@ class LedgerService:
             started_at=timezone.now(),
             status=SettlementSessionStatus.OPEN,
         )
-        logger.info('create_session: utworzono sesję %s dla strefy %s', session.id, zone)
+        logger.info(
+            "create_session: utworzono sesję %s dla strefy %s", session.id, zone
+        )
         return session
 
     @staticmethod
@@ -360,20 +364,27 @@ class LedgerService:
 
         aggregate = pending_qs.aggregate(
             count=models_count(),
-            total=Sum('amount'),
+            total=Sum("amount"),
         )
-        count = aggregate['count'] or 0
-        total = aggregate['total'] or Decimal('0')
+        count = aggregate["count"] or 0
+        total = aggregate["total"] or Decimal("0")
 
         updated = pending_qs.update(session=session)
 
         session.total_entries_count = count
         session.total_volume = total
         session.status = SettlementSessionStatus.NETTING
-        session.save(update_fields=['total_entries_count', 'total_volume', 'status', 'updated_at'])
+        session.save(
+            update_fields=[
+                "total_entries_count",
+                "total_volume",
+                "status",
+                "updated_at",
+            ]
+        )
 
         logger.info(
-            'assign_pending_entries_to_session: sesja %s, %d entries, total %s',
+            "assign_pending_entries_to_session: sesja %s, %d entries, total %s",
             session.id,
             updated,
             total,
@@ -441,10 +452,10 @@ class LedgerService:
             transfers.append(transfer)
 
         session.status = SettlementSessionStatus.SETTLING
-        session.save(update_fields=['status', 'updated_at'])
+        session.save(update_fields=["status", "updated_at"])
 
         logger.info(
-            'run_netting: sesja %s, %d entries → %d transfers (status NETTING→SETTLING)',
+            "run_netting: sesja %s, %d entries → %d transfers (status NETTING→SETTLING)",
             session.id,
             len(entries),
             len(transfers),
@@ -485,7 +496,7 @@ class LedgerService:
                 )
             except SettlementTransfer.DoesNotExist:
                 logger.error(
-                    'mark_settled: transfer %s nie istnieje w sesji %s',
+                    "mark_settled: transfer %s nie istnieje w sesji %s",
                     transfer_id,
                     session.id,
                 )
@@ -495,7 +506,7 @@ class LedgerService:
             if result == SettlementTransferStatus.COMPLETED:
                 transfer.status = SettlementTransferStatus.COMPLETED
                 transfer.completed_at = now
-                transfer.save(update_fields=['status', 'completed_at'])
+                transfer.save(update_fields=["status", "completed_at"])
                 # UWAGA — w obecnym MVP markujemy WSZYSTKIE entries sesji
                 # między tą parą banków jako settled. To uproszczenie: po
                 # nettingu nie ma 1:1 mapowania entry→transfer, więc settlement
@@ -511,7 +522,7 @@ class LedgerService:
                 any_succeeded = True
             else:
                 transfer.status = SettlementTransferStatus.FAILED
-                transfer.save(update_fields=['status'])
+                transfer.save(update_fields=["status"])
                 any_failed = True
 
         # Status sesji: COMPLETED gdy wszystko OK, FAILED gdy cokolwiek padło.
@@ -521,11 +532,16 @@ class LedgerService:
             session.status = SettlementSessionStatus.FAILED
         else:
             session.status = SettlementSessionStatus.COMPLETED
+            # Skoro cała sesja przeszła bez błędów, oznaczamy wszystkie pozostałe
+            # wpisy (w tym transakcje wewnątrzbankowe / self-transfers) jako rozliczone.
+            LedgerEntry.objects.filter(session=session, settled=False).update(
+                settled=True, settled_at=now
+            )
         session.ended_at = now
-        session.save(update_fields=['status', 'ended_at', 'updated_at'])
+        session.save(update_fields=["status", "ended_at", "updated_at"])
 
         logger.info(
-            'mark_settled: sesja %s -> %s (succeeded=%s, failed=%s)',
+            "mark_settled: sesja %s -> %s (succeeded=%s, failed=%s)",
             session.id,
             session.status,
             any_succeeded,
@@ -543,7 +559,7 @@ def models_count():
     """Helper for aggregate count."""
     from django.db.models import Count
 
-    return Count('id')
+    return Count("id")
 
 
 def _resolve_session_currency(session: SettlementSession) -> str:
