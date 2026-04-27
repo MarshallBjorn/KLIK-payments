@@ -12,6 +12,7 @@ repos:
         args: ['--maxkb=500']
       - id: check-case-conflict
       - id: mixed-line-ending
+        exclude: ^\.secrets\.baseline$
         args: ['--fix=lf']
 
   # Ruff (lint + format)
