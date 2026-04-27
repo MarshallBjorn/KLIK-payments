@@ -6,6 +6,8 @@ from rest_framework import serializers
 
 from common.enums import Zone
 
+from .enums import RejectReason
+
 # ---------------------------------------------------------------------------
 # /codes/generate
 # ---------------------------------------------------------------------------
@@ -58,3 +60,37 @@ class PaymentStatusResponseSerializer(serializers.Serializer):
     currency = serializers.CharField()
     created_at = serializers.DateTimeField()
     completed_at = serializers.DateTimeField(allow_null=True)
+
+
+class PaymentConfirmRequestSerializer(serializers.Serializer):
+    transaction_id = serializers.UUIDField()
+    decision = serializers.ChoiceField(choices=['ACCEPTED', 'REJECTED'])
+    reject_reason = serializers.ChoiceField(
+        choices=RejectReason.choices,
+        required=False,
+        allow_blank=True,
+    )
+
+    def validate(self, attrs):
+        if attrs['decision'] == 'REJECTED' and not attrs.get('reject_reason'):
+            raise serializers.ValidationError(
+                {'reject_reason': 'reject_reason jest wymagany gdy decision jest REJECTED.'}
+            )
+
+        if attrs['decision'] == 'ACCEPTED' and attrs.get('reject_reason'):
+            raise serializers.ValidationError(
+                {'reject_reason': 'reject_reason musi być pusty gdy decision jest ACCEPTED.'}
+            )
+        return attrs
+
+
+class PaymentConfirmResponseSerializer(serializers.Serializer):
+    transaction_id = serializers.UUIDField()
+    status = serializers.CharField()
+    amount_gross = serializers.DecimalField(max_digits=12, decimal_places=2)
+    klik_fee = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    agent_fee = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    merchant_net = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    currency = serializers.CharField()
+    reject_reason = serializers.CharField(allow_blank=True, required=False)
+    completed_at = serializers.DateTimeField()
