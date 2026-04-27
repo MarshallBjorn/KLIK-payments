@@ -155,12 +155,12 @@ Projekt w trakcie implementacji. Stan poszczególnych modułów:
 | Moduł | Status |
 |---|---|
 | Dokumentacja C2B | ✅ kompletna |
-| Dokumentacja P2P | 🟡 minimum |
-| Szkielet Django | 🟡 w trakcie |
+| Dokumentacja P2P | 🟡 w trakcie |
+| Szkielet Django | ✅ kompletna |
 | Moduł C2B — backend | 🟡 TBD |
 | Moduł P2P — backend | 🟡 TBD |
 | Dispatcher RTGS | 🔴 TBD |
-| Agent (Vue) | 🔴 TBD |
+| Agent FastPay | 🔴 TBD |
 | Mock banku i RTGS | 🔴 TBD |
 
 ## Autorzy
