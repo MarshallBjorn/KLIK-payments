@@ -122,12 +122,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
     ],
-    'EXCEPTION_HANDLER': 'common.exceptions.klik_exception_handler',
     # Auth domyślny — w MVP używamy custom X-KLIK-Api-Key (do dopisania)
     'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],
+    # NOWE: globalny handler błędów ujednolicający format JSON do
+    # {"error": {"code": ..., "message": ..., "timestamp": ...}}
+    # zgodnie z docs/c2b/integration/INFO.md.
+    'EXCEPTION_HANDLER': 'common.exceptions.klik_exception_handler',
 }
 # ============================================================
 # Password validation
@@ -159,6 +162,31 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # KLIK — konfiguracja domenowa
 # ============================================================
 KLIK_CODE_TTL_SECONDS = env.int('KLIK_CODE_TTL_SECONDS', default=120)
+
+# Interwały sesji rozliczeniowych per strefa (w minutach).
+# Default produkcyjny: 1440 (24h). Dla demo można obniżyć do 2-15.
+SESSION_INTERVAL_MINUTES_PL = env.int('SESSION_INTERVAL_MINUTES_PL', default=1440)
+SESSION_INTERVAL_MINUTES_EU = env.int('SESSION_INTERVAL_MINUTES_EU', default=1440)
+SESSION_INTERVAL_MINUTES_UK = env.int('SESSION_INTERVAL_MINUTES_UK', default=1440)
+SESSION_INTERVAL_MINUTES_US = env.int('SESSION_INTERVAL_MINUTES_US', default=1440)
+
+# Timeout HTTP dispatcher → RTGS w sekundach
+RTGS_TIMEOUT_SECONDS = env.int('RTGS_TIMEOUT_SECONDS', default=30)
+
+# URLe RTGS mocków (w docker-compose: rtgs-mock:9000)
+SORBNET3_URL = env('SORBNET3_URL', default='http://rtgs-mock:9000/sorbnet3')
+TARGET2_URL = env('TARGET2_URL', default='http://rtgs-mock:9000/target2')
+CHAPS_URL = env('CHAPS_URL', default='http://rtgs-mock:9000/chaps')
+FEDNOW_URL = env('FEDNOW_URL', default='http://rtgs-mock:9000/fednow')
+
+from core.celery_beat_schedule import build_beat_schedule  # noqa: E402
+
+CELERY_BEAT_SCHEDULE = build_beat_schedule(
+    interval_pl=SESSION_INTERVAL_MINUTES_PL,
+    interval_eu=SESSION_INTERVAL_MINUTES_EU,
+    interval_uk=SESSION_INTERVAL_MINUTES_UK,
+    interval_us=SESSION_INTERVAL_MINUTES_US,
+)
 
 KLIK_SESSION_INTERVALS = {
     'PL': env.int('SESSION_INTERVAL_MINUTES_PL', default=1440),
@@ -222,3 +250,5 @@ LOGGING = {
         },
     },
 }
+
+

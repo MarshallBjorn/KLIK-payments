@@ -76,6 +76,23 @@ services:
     networks:
       - klik_net
 
+  rtgs-mock:
+    build: ./rtgs_mock
+    environment:
+      RTGS_LATENCY_MIN_MS: ${RTGS_LATENCY_MIN_MS:-50}
+      RTGS_LATENCY_MAX_MS: ${RTGS_LATENCY_MAX_MS:-300}
+      RTGS_FAIL_RATE: ${RTGS_FAIL_RATE:-0.0}
+      RTGS_TIMEOUT_RATE: ${RTGS_TIMEOUT_RATE:-0.0}
+      RTGS_BLACKLIST: ${RTGS_BLACKLIST:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - klik_net
+
 networks:
   klik_net:
     driver: bridge
