@@ -31,10 +31,12 @@
 
 ## O projekcie
 
-KLIK pełni rolę centralnego operatora i routera płatności mobilnych. Zapewnia dwa główne moduły:
+KLIK pełni rolę centralnego operatora i routera płatności mobilnych. Zapewnia cztery moduły:
 
 1. **KLIK Kody (C2B)** — autoryzacja płatności w punktach sprzedaży za pomocą 6-cyfrowych kodów generowanych na żądanie banku.
 2. **KLIK Telefon (P2P)** — rejestr aliasów mapujący numery telefonów na dane bankowe, umożliwiający przelewy na numer telefonu.
+3. **KLIK Czeki (Cheques)** — 9-cyfrowe kody o ustalonej kwocie i długim TTL (1h–72h), realizowane jednorazowo przez agenta. Hold środków po stronie banku wystawcy.
+4. **KLIK Regularne transfery (Recurring)** — zlecenia stałe oparte na aliasie P2P (DAILY / WEEKLY / MONTHLY). KLIK orkiestruje czas wykonania, bank wystawcy realizuje przelew RTP.
 
 KLIK działa jako niezależny mikroserwis (orkiestrator). **Nie przechowuje środków pieniężnych** — zarządza logiką autoryzacji (Kody) oraz routingiem danych (Telefony). Rozliczenia międzybankowe realizowane są w sesjach nettingowych przez systemy RTGS (SORBNET3 / TARGET2 / CHAPS / FedNow).
 
@@ -45,7 +47,9 @@ System obsługuje cztery strefy walutowo-krajowe (PL, EU, UK, US) z rygorystyczn
 ### W zakresie projektu
 
 - **KLIK Kody (C2B)** — generowanie kodów, autoryzacja, split prowizji, netting, dispatch do RTGS
-- **KLIK Telefon (P2P)** — rejestracja aliasów, lookup (bez clearingu po stronie KLIK w wersji 1.0)
+- **KLIK Telefon (P2P)** — rejestracja aliasów, lookup, daily fee accrual
+- **KLIK Czeki (Cheques)** — issue / redeem / cancel, expire cron, integracja z Transaction i ledgerem C2B
+- **KLIK Regularne transfery (Recurring)** — mandate, dispatch cron, webhook /execute do banku, auto-pause
 - **Agent rozliczeniowy (Vue)** — symulowany terminal/bramka płatnicza
 - **Dispatcher RTGS** — 4 strategie dla 4 systemów bankowości centralnej
 - **Panel operatora** — Django Admin
@@ -78,7 +82,15 @@ klik_proj/
 │   │   ├── bpmn/         # Diagramy BPMN + eksporty PNG
 │   │   ├── diagrams/     # Diagramy Mermaid (stany, sekwencje, ERD)
 │   │   └── integration/  # Dokumentacja integracyjna dla banków
-│   └── p2p/              # Moduł Telefony (P2P) [TBD]
+│   ├── p2p/              # Moduł Telefony (P2P)
+│   │   ├── diagrams/
+│   │   └── integration/
+│   ├── cheques/          # Moduł Czeki (Cheques)
+│   │   ├── diagrams/
+│   │   └── integration/
+│   └── recurring/        # Moduł Regularne transfery (Recurring)
+│       ├── diagrams/
+│       └── integration/
 ├── klik_proj/
 │   ├── docker-compose.yml
 │   ├── docker-compose-dev.yml
@@ -102,7 +114,26 @@ Szczegółowa dokumentacja podzielona jest tematycznie. README zawiera tylko pod
 
 ### Moduł P2P (Telefony)
 
-Dokumentacja w przygotowaniu. Zakres modułu ograniczony — patrz [sekcja Zakres](#zakres).
+| Dokument | Zawartość |
+|---|---|
+| [docs/p2p/integration/INFO.md](./docs/p2p/integration/INFO.md) | Dokumentacja integracyjna dla banków — pricing model, account identifier per strefa, API reference |
+| [docs/p2p/diagrams/WORKFLOW.md](./docs/p2p/diagrams/WORKFLOW.md) | Diagramy sekwencji (P0–P4) + stany Alias |
+
+### Moduł Cheques (Czeki)
+
+| Dokument | Zawartość |
+|---|---|
+| [docs/cheques/integration/INFO.md](./docs/cheques/integration/INFO.md) | API reference, model rozliczeniowy (HOLD po stronie banku), TTL config, error codes, webhooki end-of-life |
+| [docs/cheques/diagrams/WORKFLOW.md](./docs/cheques/diagrams/WORKFLOW.md) | Diagramy sekwencji (CH0–CH4) — issue, redeem, cancel, expire, settlement |
+| [docs/cheques/diagrams/STATE.md](./docs/cheques/diagrams/STATE.md) | Stany Cheque + Transaction (cheque-redemption) + ERD update |
+
+### Moduł Recurring (Regularne transfery)
+
+| Dokument | Zawartość |
+|---|---|
+| [docs/recurring/integration/INFO.md](./docs/recurring/integration/INFO.md) | API reference, schedule i cykle, failure handling, auto-pause, webhooki banku |
+| [docs/recurring/diagrams/WORKFLOW.md](./docs/recurring/diagrams/WORKFLOW.md) | Diagramy sekwencji (R0–R6) — create, execution, pause/resume, cancel, auto-pause, end_date |
+| [docs/recurring/diagrams/STATE.md](./docs/recurring/diagrams/STATE.md) | Stany RecurringTransfer + RecurringExecution + ERD update |
 
 ### Testowanie integracji
 
@@ -149,19 +180,21 @@ Każdy push i PR przechodzi przez GitHub Actions:
 PR nie zostanie zmergowany jeśli CI jest czerwony.
 
 ## Status projektu
-
-Projekt w trakcie implementacji. Stan poszczególnych modułów:
-
 | Moduł | Status |
 |---|---|
 | Dokumentacja C2B | ✅ kompletna |
-| Dokumentacja P2P | 🟡 w trakcie |
-| Szkielet Django | ✅ kompletna |
-| Moduł C2B — backend | 🟡 TBD |
-| Moduł P2P — backend | 🟡 TBD |
-| Dispatcher RTGS | 🔴 TBD |
-| Agent FastPay | 🔴 TBD |
-| Mock banku i RTGS | 🔴 TBD |
+| Dokumentacja P2P | ✅ kompletna |
+| Dokumentacja Cheques | 🟡 draft do przeglądu |
+| Dokumentacja Recurring | 🟡 draft do przeglądu |
+| Szkielet Django | ✅ kompletny |
+| Moduł C2B — backend | ✅ kompletny |
+| Moduł P2P — backend | ✅ kompletny |
+| Moduł Cheques — backend | 🔴 TBD |
+| Moduł Recurring — backend | 🔴 TBD |
+| Dispatcher RTGS | ✅ kompletny |
+| Mock RTGS | ✅ kompletny |
+| Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
+| Agent rozliczeniowy (Vue) | 🔴 TBD |
 
 ## Autorzy
 
