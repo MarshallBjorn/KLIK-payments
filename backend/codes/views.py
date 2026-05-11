@@ -5,6 +5,7 @@ import logging
 from django.db import transaction as db_transaction
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -180,6 +181,8 @@ class PaymentInitiateView(APIView):
             idempotency_key=idempotency_key,
             status=TransactionStatus.PENDING,
         )
+
+        print(transaction)
 
         # Cache statusu w Redisie
         service.cache_transaction_status(
@@ -406,3 +409,20 @@ def _process_rejected(tx: Transaction, reject_reason: str):
     tx.reject_reason = reject_reason
     tx.rejected_at = now
     tx.save()
+
+
+# ---------------------------------------------------------------------------
+# GET /payments  (historia agenta)
+# ---------------------------------------------------------------------------
+
+
+class PaymentHistoryView(ListAPIView):
+    """GET /api/v1/payments — historia transakcji zalogowanego agenta."""
+
+    authentication_classes = [XKlikAgentApiKeyAuthentication]
+    permission_classes = []
+    serializer_class = PaymentStatusResponseSerializer
+
+    def get_queryset(self):
+        agent = self.request.user
+        return Transaction.objects.filter(agent=agent).order_by('created_at')[:50]
