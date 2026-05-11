@@ -191,13 +191,13 @@ PR nie zostanie zmergowany jeśli CI jest czerwony.
 |---|---|
 | Dokumentacja C2B | ✅ kompletna |
 | Dokumentacja P2P | ✅ kompletna |
-| Dokumentacja Cheques | 🟡 draft do przeglądu |
-| Dokumentacja Recurring | 🟡 draft do przeglądu |
+| Dokumentacja Cheques | ✅ kompletna |
+| Dokumentacja Recurring | ✅ kompletna |
 | Szkielet Django | ✅ kompletny |
-| Moduł C2B — backend | ✅ kompletny |
-| Moduł P2P — backend | ✅ kompletny |
-| Moduł Cheques — backend | 🔴 TBD |
-| Moduł Recurring — backend | 🔴 TBD |
+| Moduł C2B — backend | ✅🟡 kompletny - oczekuje na testy |
+| Moduł P2P — backend | ✅🟡 kompletny - oczekuje na testy |
+| Moduł Cheques — backend | 🟡 W trakcie implementacji |
+| Moduł Recurring — backend | 🟡 W trakcie implementacji |
 | Dispatcher RTGS | ✅ kompletny |
 | Mock RTGS | ✅ kompletny |
 | Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
