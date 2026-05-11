@@ -2,7 +2,7 @@
 
 > Centralny operator i router płatności mobilnych w ekosystemie bankowym — odpowiednik BLIK dla wielu stref walutowych.
 
-**Projekt akademicki:** Aplikacje Biznesowe, prowadzący: mgr inż. Marcin Mrukowicz.
+**Projekt akademicki:** Aplikacje Biznesowe.
 
 ---
 
@@ -19,6 +19,8 @@
   - [Dokumentacja](#dokumentacja)
     - [Moduł C2B (Kody)](#moduł-c2b-kody)
     - [Moduł P2P (Telefony)](#moduł-p2p-telefony)
+    - [Moduł Cheques (Czeki)](#moduł-cheques-czeki)
+    - [Moduł Recurring (Regularne transfery)](#moduł-recurring-regularne-transfery)
     - [Testowanie integracji](#testowanie-integracji)
   - [Development workflow](#development-workflow)
     - [Pierwszy setup po klonowaniu repo](#pierwszy-setup-po-klonowaniu-repo)
@@ -41,6 +43,11 @@ KLIK pełni rolę centralnego operatora i routera płatności mobilnych. Zapewni
 KLIK działa jako niezależny mikroserwis (orkiestrator). **Nie przechowuje środków pieniężnych** — zarządza logiką autoryzacji (Kody) oraz routingiem danych (Telefony). Rozliczenia międzybankowe realizowane są w sesjach nettingowych przez systemy RTGS (SORBNET3 / TARGET2 / CHAPS / FedNow).
 
 System obsługuje cztery strefy walutowo-krajowe (PL, EU, UK, US) z rygorystyczną izolacją strefową — transakcje cross-zone są odrzucane.
+
+> [!IMPORTANT]
+> **Zakres implementacji**<br>
+> Szanowne zespoły bankowe. W ramach tego przedmiotu, z systemu KLIK musicie zaintegrować następujące moduły: C2B (płatnośc kodem) oraz P2P (płatność na telefon).<br>
+> Problemom dotyczącym integracji NIEOBOWIĄZKOWYCH modułów będzie nadawany najniższy priorytet.
 
 ## Zakres
 
@@ -184,17 +191,17 @@ PR nie zostanie zmergowany jeśli CI jest czerwony.
 |---|---|
 | Dokumentacja C2B | ✅ kompletna |
 | Dokumentacja P2P | ✅ kompletna |
-| Dokumentacja Cheques | 🟡 draft do przeglądu |
-| Dokumentacja Recurring | 🟡 draft do przeglądu |
+| Dokumentacja Cheques | ✅ kompletna |
+| Dokumentacja Recurring | ✅ kompletna |
 | Szkielet Django | ✅ kompletny |
-| Moduł C2B — backend | ✅ kompletny |
-| Moduł P2P — backend | ✅ kompletny |
-| Moduł Cheques — backend | 🔴 TBD |
-| Moduł Recurring — backend | 🔴 TBD |
+| Moduł C2B — backend | ✅🟡 kompletny - oczekuje na testy |
+| Moduł P2P — backend | ✅🟡 kompletny - oczekuje na testy |
+| Moduł Cheques — backend | 🟡 W trakcie implementacji |
+| Moduł Recurring — backend | 🟡 W trakcie implementacji |
 | Dispatcher RTGS | ✅ kompletny |
 | Mock RTGS | ✅ kompletny |
 | Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
-| Agent rozliczeniowy (Vue) | 🔴 TBD |
+| Agent rozliczeniowy (Vue) | 🟡 W trakcie implementacji |
 
 ## Autorzy
 

@@ -177,7 +177,7 @@ sequenceDiagram
     %% ETAP 3: Pojedynczy run (osobny task)
     Note over Worker, BankN: ETAP 3: Pojedyncze execution (jeden mandate)
     Note over Worker: execute_recurring_run(mandate_id)
-    Worker->>DB: BEGIN; SELECT RecurringTransfer FOR UPDATE
+    Worker->>DB: BEGIN SELECT RecurringTransfer FOR UPDATE
     alt Mandate nie ACTIVE (race z pause/cancel)
         DB-->>Worker: status != ACTIVE
         Worker->>DB: ROLLBACK
@@ -212,7 +212,7 @@ sequenceDiagram
                 RTP-->>BankN: HTTP 200 (rtp_reference)
                 BankN-->>Worker: HTTP 200 {status: "EXECUTED", rtp_reference, executed_at}
 
-                Worker->>DB: BEGIN; UPDATE RecurringExecution<br/>SET status=SUCCESS, executed_at=..., rtp_reference=...
+                Worker->>DB: BEGIN UPDATE RecurringExecution<br/>SET status=SUCCESS, executed_at=..., rtp_reference=...
                 Worker->>DB: UPDATE RecurringTransfer<br/>SET last_run_at=now, last_execution_id=...,<br/>failed_runs_count=0,<br/>next_run_at=<next per cycle>
                 Worker->>DB: Sprawdź: czy next_run_at > end_date?
                 alt next_run_at > end_date
@@ -223,7 +223,7 @@ sequenceDiagram
 
             else Bank odpowiada REJECTED
                 BankN-->>Worker: HTTP 200 {status: "REJECTED", reject_reason: "INSUFFICIENT_FUNDS"}
-                Worker->>DB: BEGIN; UPDATE RecurringExecution<br/>SET status=FAILED, failure_reason=reject_reason
+                Worker->>DB: BEGIN UPDATE RecurringExecution<br/>SET status=FAILED, failure_reason=reject_reason
                 Worker->>DB: UPDATE RecurringTransfer<br/>SET failed_runs_count++, next_run_at=<next per cycle>
 
                 alt reject_reason in [MANDATE_REVOKED_LOCALLY, ACCOUNT_CLOSED]

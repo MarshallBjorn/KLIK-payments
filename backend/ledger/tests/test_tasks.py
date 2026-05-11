@@ -89,9 +89,7 @@ def _patched_dispatcher(gateway: RTGSGateway):
     return patch.object(
         RTGSDispatcher,
         'from_settings',
-        return_value=RTGSDispatcher(
-            {z.value: gateway for z in Zone}
-        ),
+        return_value=RTGSDispatcher({z.value: gateway for z in Zone}),
     )
 
 
@@ -255,12 +253,10 @@ class TestRunSettlementSessionFailures:
         assert session.status == SettlementSessionStatus.FAILED
 
         # Entries pozostają niesettled — wrócą do następnej sesji
-        unsettled_in_session = LedgerEntry.objects.filter(
-            session=session, settled=False
-        ).count()
+        unsettled_in_session = LedgerEntry.objects.filter(session=session, settled=False).count()
         assert unsettled_in_session > 0
 
-    @pytest.mark.skip(reason="Model SettlementTransfer nie posiada jeszcze pola failure_reason")
+    @pytest.mark.skip(reason='Model SettlementTransfer nie posiada jeszcze pola failure_reason')
     def test_failed_transfer_records_failure_reason(
         self, bank_pl, bank_pl_2, agent, msc, merchant_off_us
     ):
@@ -275,9 +271,7 @@ class TestRunSettlementSessionFailures:
         with _patched_dispatcher(AlwaysFailGateway()):
             run_settlement_session.apply(args=['PL']).get()
 
-        failed = SettlementTransfer.objects.filter(
-            status=SettlementTransferStatus.FAILED
-        )
+        failed = SettlementTransfer.objects.filter(status=SettlementTransferStatus.FAILED)
         assert failed.exists()
         assert failed.first().failure_reason == 'Test failure'
 
@@ -357,9 +351,7 @@ class TestAccrueP2PLookupFees:
         # 50 × 0.10 = 5.00
         assert uk_entry.amount == Decimal('5.00')
 
-    def test_clears_counters_after_processing(
-        self, bank_pl_paid_lookups, clean_redis
-    ):
+    def test_clears_counters_after_processing(self, bank_pl_paid_lookups, clean_redis):
         today = timezone.now().date()
         key = f'aliases:lookups:{bank_pl_paid_lookups.id}:{today.strftime("%Y%m%d")}'
         clean_redis.set(key, 10)
@@ -386,9 +378,7 @@ class TestAccrueP2PLookupFees:
         key = f'aliases:lookups:{bank.id}:{today.strftime("%Y%m%d")}'
         assert clean_redis.get(key) is None
 
-    def test_idempotent_second_run_no_duplicate(
-        self, bank_pl_paid_lookups, clean_redis
-    ):
+    def test_idempotent_second_run_no_duplicate(self, bank_pl_paid_lookups, clean_redis):
         today = timezone.now().date()
         _set_counter(clean_redis, bank_pl_paid_lookups.id, today, 100)
 
@@ -402,9 +392,7 @@ class TestAccrueP2PLookupFees:
         result_2 = accrue_p2p_lookup_fees.apply(args=[today.isoformat()]).get()
         assert result_2['entries_created'] == 0  # Zero — bo source_ref już istnieje
 
-        assert (
-            LedgerEntry.objects.filter(from_bank=bank_pl_paid_lookups).count() == 1
-        )
+        assert LedgerEntry.objects.filter(from_bank=bank_pl_paid_lookups).count() == 1
 
     def test_no_counters_returns_empty(self, clean_redis):
         today = timezone.now().date()

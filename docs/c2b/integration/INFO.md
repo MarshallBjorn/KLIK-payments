@@ -2,9 +2,9 @@
 
 Dokument dla zespołów bankowych integrujących się z systemem KLIK.
 
-**Wersja:** 1.0 (draft)
+**Wersja:** 1.0
 **Data:** 2026-04-23
-**Status:** W trakcie implementacji — specyfikacja może ulec niewielkim zmianom
+**Status:** Kompletny — czeka na sprawdzenie
 
 ---
 

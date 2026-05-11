@@ -34,9 +34,9 @@ Operuje na czystych typach Python (UUID, Decimal) — bez zależności od ORM.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
 from uuid import UUID
 
 logger = logging.getLogger('klik')
@@ -200,11 +200,7 @@ def net_obligations(obligations: Iterable[Obligation]) -> list[NetTransfer]:
         len(transfers),
         len(obligations_list),
         len(transfers),
-        (
-            (1 - len(transfers) / len(obligations_list)) * 100
-            if obligations_list
-            else 0
-        ),
+        ((1 - len(transfers) / len(obligations_list)) * 100 if obligations_list else 0),
     )
 
     return transfers
