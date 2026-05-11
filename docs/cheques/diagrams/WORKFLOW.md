@@ -133,7 +133,7 @@ sequenceDiagram
     Agent->>API: POST /cheques/redeem<br/>{cheque_code: "123456789", merchant_id}<br/>X-KLIK-Agent-Api-Key, Idempotency-Key
     API->>API: Auth agenta, walidacja merchant_id
 
-    API->>DB: BEGIN; SELECT Cheque WHERE code=... AND status=ACTIVE FOR UPDATE
+    API->>DB: BEGIN, SELECT Cheque WHERE code AND status=ACTIVE FOR UPDATE
     alt Czek istnieje, ACTIVE, nie wygasł
         DB-->>API: Cheque{id, amount, issuer_bank_id, expires_at, ...}
         API->>API: Walidacja: cheque.zone == agent.zone,<br/>cheque.expires_at > now
@@ -166,7 +166,7 @@ sequenceDiagram
     else Czek wygasł (expires_at <= now ale jeszcze nie przeszedł cron expire)
         DB-->>API: Cheque (ACTIVE)
         API->>API: Walidacja: now > expires_at
-        API->>DB: UPDATE Cheque SET status=EXPIRED, ...; ROLLBACK Transaction
+        API->>DB: UPDATE Cheque SET status=EXPIRED, ROLLBACK Transaction
         API->>Q: enqueue notify_cheque_released_task(reason=EXPIRED)
         API-->>Agent: HTTP 404_CHEQUE_EXPIRED
     else Czek REDEEMED/CANCELLED
@@ -231,7 +231,7 @@ sequenceDiagram
     BankN->>API: POST /cheques/cancel {cheque_id}<br/>X-KLIK-Bank-Api-Key, Idempotency-Key
     API->>API: Auth banku, weryfikacja cheques_enabled
 
-    API->>DB: BEGIN; SELECT Cheque WHERE id=... FOR UPDATE
+    API->>DB: INSERT Cheque (code, status=ACTIVE, ...) ON CONFLICT(code, status=ACTIVE) DO NOTHING
     alt Czek nie istnieje
         DB-->>API: empty
         API->>DB: ROLLBACK
@@ -308,11 +308,10 @@ sequenceDiagram
         DB-->>Worker: lista czeków (np. 25)
 
         loop Per czek (w batchu po 1000, dla każdego osobna mała transakcja)
-            Worker->>DB: BEGIN; SELECT Cheque WHERE id=X AND status=ACTIVE FOR UPDATE
+            Worker->>DB: BEGIN, SELECT Cheque WHERE id=X AND status=ACTIVE, FOR UPDATE
             alt Stan się zmienił między SELECT a UPDATE (race z redeem/cancel)
                 DB-->>Worker: status != ACTIVE
                 Worker->>DB: ROLLBACK
-                Note right of Worker: Pomiń, race wygrał inny flow
             else Nadal ACTIVE
                 DB-->>Worker: Cheque (ACTIVE)
                 Worker->>DB: UPDATE Cheque SET status=EXPIRED, expired_at=now
