@@ -93,6 +93,37 @@ services:
     networks:
       - klik_net
 
+  bank-mock-backend:
+    build: ./bank_IO/backend
+    environment:
+      BANK_NAME: ${BANK_MOCK_NAME:-BANK_MOCK}
+      BANK_ZONE: ${BANK_MOCK_ZONE:-PL}
+      # KLIK: w sieci compose serwis nazywa się "web" (port 8000)
+      KLIK_BASE_URL: ${BANK_MOCK_KLIK_BASE_URL:-http://web:8000/api/v1}
+      KLIK_BANK_API_KEY: ${BANK_MOCK_KLIK_BANK_API_KEY:-}
+      KLIK_CODE_TTL_SECONDS: ${KLIK_CODE_TTL_SECONDS:-120}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - klik_net
+
+  bank-mock-frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5174"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./bank_IO/frontend:/app
+    depends_on:
+      - bank-mock-backend
+    networks:
+      - klik_net
+
 networks:
   klik_net:
     driver: bridge
