@@ -20,11 +20,9 @@ from ledger.rtgs.gateway import RTGSGateway
 from ledger.rtgs.gateways import (
     CHAPSGateway,
     FedNowGateway,
-    HTTPRTGSGateway,
     SORBNET3Gateway,
     TARGET2Gateway,
 )
-
 
 # ----------------------------------------------------------------------
 # Fake gateway dla testów dispatchera

@@ -202,7 +202,6 @@ def run_settlement_session(self, zone: str) -> dict:
 
     # Zapis rtgs_reference / failure_reason na transferach (przed mark_settled
     # bo mark zmienia status, nie chcemy go nadpisać).
-    from ledger.models import SettlementTransfer
 
     by_id = {str(t.id): t for t in transfers}
     for r in results:

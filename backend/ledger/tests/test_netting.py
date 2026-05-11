@@ -9,9 +9,7 @@ Pokrycie:
 from __future__ import annotations
 
 from decimal import Decimal
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import UUID
 
 from ledger.services.netting import (
     NetTransfer,

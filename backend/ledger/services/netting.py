@@ -34,9 +34,9 @@ Operuje na czystych typach Python (UUID, Decimal) — bez zależności od ORM.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
 from uuid import UUID
 
 logger = logging.getLogger('klik')
