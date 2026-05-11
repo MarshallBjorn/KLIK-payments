@@ -30,7 +30,7 @@ class AgentAdmin(admin.ModelAdmin):
         (
             'Rozliczenia',
             {
-                'fields': ('settlement_bank', 'iban'),
+                'fields': ('settlement_bank', 'account_identifier'),
             },
         ),
         (
@@ -82,6 +82,27 @@ class AgentAdmin(admin.ModelAdmin):
             ),
             level=messages.WARNING,
         )
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.api_key_hash:
+            from django.contrib import messages
+            from django.utils.html import format_html
+
+            plaintext, hash_value = generate_api_key()
+            obj.api_key_hash = hash_value
+            super().save_model(request, obj, form, change)
+            self.message_user(
+                request,
+                format_html(
+                    'Klucz API dla <b>{}</b>: <code>{}</code><br>'
+                    '<b>Skopiuj go teraz — nie będzie widoczny ponownie.</b>',
+                    obj.name,
+                    plaintext,
+                ),
+                level=messages.WARNING,
+            )
+        else:
+            super().save_model(request, obj, form, change)
 
 
 @admin.register(MSCAgreement)
