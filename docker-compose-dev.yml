@@ -43,3 +43,14 @@ services:
       - ./rtgs_mock:/app
     ports:
       - "9000:9000"  # exposed dla łatwego curl-a z hosta
+
+  bank-mock-backend:
+    command: uvicorn main:app --host 0.0.0.0 --port 8100 --reload
+    volumes:
+      - ./bank_IO/backend:/app
+    ports:
+      - "8100:8100"   # webhook od KLIK + API dla UI
+
+  bank-mock-frontend:
+    ports:
+      - "5174:5174"   # UI operatora
