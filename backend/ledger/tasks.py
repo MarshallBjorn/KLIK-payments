@@ -32,7 +32,7 @@ from ledger.rtgs import RTGSDispatcher, TransferRequest, TransferStatus
 from ledger.rtgs.exceptions import RTGSUnavailableError
 from ledger.services import LedgerService
 
-logger = logging.getLogger("klik")
+logger = logging.getLogger('klik')
 
 
 # ----------------------------------------------------------------------
@@ -40,7 +40,7 @@ logger = logging.getLogger("klik")
 # ----------------------------------------------------------------------
 
 
-@shared_task(bind=True, name="ledger.run_settlement_session")
+@shared_task(bind=True, name='ledger.run_settlement_session')
 def run_settlement_session(self, zone: str) -> dict:
     """Pełny pipeline sesji settlement dla strefy.
 
@@ -71,28 +71,28 @@ def run_settlement_session(self, zone: str) -> dict:
     Returns:
         Dict z podsumowaniem sesji (do flower/admin).
     """
-    logger.info("run_settlement_session: start dla strefy %s", zone)
+    logger.info('run_settlement_session: start dla strefy %s', zone)
 
     # Walidacja strefy zanim cokolwiek zrobimy w DB
     try:
         Zone(zone)
     except ValueError:
-        logger.error("run_settlement_session: nieznana strefa %r", zone)
-        return {"status": "ERROR", "reason": f"Unknown zone: {zone}"}
+        logger.error('run_settlement_session: nieznana strefa %r', zone)
+        return {'status': 'ERROR', 'reason': f'Unknown zone: {zone}'}
 
     # ETAP 1: Utworzenie sesji
     try:
         session = LedgerService.create_session(zone)
     except ActiveSessionExistsError as exc:
         logger.warning(
-            "run_settlement_session: aktywna sesja %s dla strefy %s już istnieje — pomijam",
+            'run_settlement_session: aktywna sesja %s dla strefy %s już istnieje — pomijam',
             exc.existing_session_id,
             zone,
         )
         return {
-            "status": "SKIPPED",
-            "reason": "active_session_exists",
-            "existing_session_id": str(exc.existing_session_id),
+            'status': 'SKIPPED',
+            'reason': 'active_session_exists',
+            'existing_session_id': str(exc.existing_session_id),
         }
 
     # ETAP 2: Przypisanie pending entries
@@ -104,18 +104,18 @@ def run_settlement_session(self, zone: str) -> dict:
     if entries_count == 0:
         session.status = SettlementSessionStatus.COMPLETED
         session.ended_at = timezone.now()
-        session.save(update_fields=["status", "ended_at", "updated_at"])
+        session.save(update_fields=['status', 'ended_at', 'updated_at'])
         logger.info(
-            "run_settlement_session: brak entries dla strefy %s, sesja %s → COMPLETED (no-op)",
+            'run_settlement_session: brak entries dla strefy %s, sesja %s → COMPLETED (no-op)',
             zone,
             session.id,
         )
         return {
-            "status": "COMPLETED",
-            "session_id": str(session.id),
-            "zone": zone,
-            "entries_count": 0,
-            "transfers_count": 0,
+            'status': 'COMPLETED',
+            'session_id': str(session.id),
+            'zone': zone,
+            'entries_count': 0,
+            'transfers_count': 0,
         }
 
     # ETAP 3: Netting (NETTING → SETTLING)
@@ -126,25 +126,25 @@ def run_settlement_session(self, zone: str) -> dict:
         # i każdy uczestnik osobno też ma 0 — np. A→B 100 i B→A 100). Po marku
         # wszystkich entries jako settled, sesja COMPLETED.
         session.refresh_from_db()
-        from ledger.models import LedgerEntry as _LE
+        from ledger.models import LedgerEntry
 
-        _LE.objects.filter(session=session, settled=False).update(
+        LedgerEntry.objects.filter(session=session, settled=False).update(
             settled=True,
             settled_at=timezone.now(),
         )
         session.status = SettlementSessionStatus.COMPLETED
         session.ended_at = timezone.now()
-        session.save(update_fields=["status", "ended_at", "updated_at"])
+        session.save(update_fields=['status', 'ended_at', 'updated_at'])
         logger.info(
-            "run_settlement_session: sesja %s zbilansowana wewnętrznie → COMPLETED",
+            'run_settlement_session: sesja %s zbilansowana wewnętrznie → COMPLETED',
             session.id,
         )
         return {
-            "status": "COMPLETED",
-            "session_id": str(session.id),
-            "zone": zone,
-            "entries_count": entries_count,
-            "transfers_count": 0,
+            'status': 'COMPLETED',
+            'session_id': str(session.id),
+            'zone': zone,
+            'entries_count': entries_count,
+            'transfers_count': 0,
         }
 
     # ETAP 4: Dispatch do RTGS
@@ -166,26 +166,24 @@ def run_settlement_session(self, zone: str) -> dict:
         # Cały RTGS down — wszystkie transfery fail, sesja FAILED.
         # Entries pozostają niesettled, trafią do następnej sesji.
         logger.error(
-            "run_settlement_session: RTGS %s niedostępny dla sesji %s: %s",
+            'run_settlement_session: RTGS %s niedostępny dla sesji %s: %s',
             exc.system_name,
             session.id,
             exc.reason,
         )
-        all_failed = {str(t.id): SettlementSessionStatus.FAILED for t in transfers}
+        _ = {str(t.id): SettlementSessionStatus.FAILED for t in transfers}
         # Mark wszystkich jako FAILED przez mark_settled — jeden punkt finalizacji
         from ledger.enums import SettlementTransferStatus
 
-        all_failed_dict = {
-            str(t.id): SettlementTransferStatus.FAILED for t in transfers
-        }
+        all_failed_dict = {str(t.id): SettlementTransferStatus.FAILED for t in transfers}
         LedgerService.mark_settled(session, all_failed_dict)
         return {
-            "status": "FAILED",
-            "session_id": str(session.id),
-            "zone": zone,
-            "reason": f"RTGS unavailable: {exc.reason}",
-            "entries_count": entries_count,
-            "transfers_count": len(transfers),
+            'status': 'FAILED',
+            'session_id': str(session.id),
+            'zone': zone,
+            'reason': f'RTGS unavailable: {exc.reason}',
+            'entries_count': entries_count,
+            'transfers_count': len(transfers),
         }
 
     # ETAP 5: Mark settled (na podstawie wyniku RTGS)
@@ -202,7 +200,6 @@ def run_settlement_session(self, zone: str) -> dict:
 
     # Zapis rtgs_reference / failure_reason na transferach (przed mark_settled
     # bo mark zmienia status, nie chcemy go nadpisać).
-    from ledger.models import SettlementTransfer
 
     by_id = {str(t.id): t for t in transfers}
     for r in results:
@@ -212,23 +209,21 @@ def run_settlement_session(self, zone: str) -> dict:
         update_fields = []
         if r.rtgs_reference:
             t.rtgs_reference = r.rtgs_reference
-            update_fields.append("rtgs_reference")
+            update_fields.append('rtgs_reference')
         if r.failure_reason:
-            if hasattr(t, "failure_reason"):
+            if hasattr(t, 'failure_reason'):
                 t.failure_reason = r.failure_reason
-                update_fields.append("failure_reason")
+                update_fields.append('failure_reason')
         if update_fields:
             t.save(update_fields=update_fields)
 
     final_session = LedgerService.mark_settled(session, transfer_results)
 
-    successes = sum(
-        1 for v in transfer_results.values() if v == SettlementTransferStatus.COMPLETED
-    )
+    successes = sum(1 for v in transfer_results.values() if v == SettlementTransferStatus.COMPLETED)
     fails = len(transfer_results) - successes
 
     logger.info(
-        "run_settlement_session: sesja %s zakończona, status=%s, transferów=%d (OK=%d, FAIL=%d)",
+        'run_settlement_session: sesja %s zakończona, status=%s, transferów=%d (OK=%d, FAIL=%d)',
         final_session.id,
         final_session.status,
         len(transfers),
@@ -236,13 +231,13 @@ def run_settlement_session(self, zone: str) -> dict:
         fails,
     )
     return {
-        "status": str(final_session.status),
-        "session_id": str(final_session.id),
-        "zone": zone,
-        "entries_count": entries_count,
-        "transfers_count": len(transfers),
-        "transfers_succeeded": successes,
-        "transfers_failed": fails,
+        'status': str(final_session.status),
+        'session_id': str(final_session.id),
+        'zone': zone,
+        'entries_count': entries_count,
+        'transfers_count': len(transfers),
+        'transfers_succeeded': successes,
+        'transfers_failed': fails,
     }
 
 
@@ -253,7 +248,7 @@ def run_settlement_session(self, zone: str) -> dict:
 
 @shared_task(
     bind=True,
-    name="ledger.accrue_p2p_lookup_fees",
+    name='ledger.accrue_p2p_lookup_fees',
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,
@@ -288,21 +283,21 @@ def accrue_p2p_lookup_fees(self, target_date_iso: str | None = None) -> dict:
         try:
             target_date = date_cls.fromisoformat(target_date_iso)
         except ValueError:
-            logger.error("accrue_p2p_lookup_fees: zła data %r", target_date_iso)
-            return {"status": "ERROR", "reason": f"Invalid date: {target_date_iso}"}
+            logger.error('accrue_p2p_lookup_fees: zła data %r', target_date_iso)
+            return {'status': 'ERROR', 'reason': f'Invalid date: {target_date_iso}'}
     else:
         target_date = timezone.now().date()
 
-    logger.info("accrue_p2p_lookup_fees: start dla %s", target_date)
+    logger.info('accrue_p2p_lookup_fees: start dla %s', target_date)
 
     entries = LedgerService.record_p2p_lookup_fees(target_date)
 
     return {
-        "status": "OK",
-        "date": target_date.isoformat(),
-        "entries_created": len(entries),
-        "total_amount": str(
-            sum((e.amount for e in entries), start=__import__("decimal").Decimal("0"))
+        'status': 'OK',
+        'date': target_date.isoformat(),
+        'entries_created': len(entries),
+        'total_amount': str(
+            sum((e.amount for e in entries), start=__import__('decimal').Decimal('0'))
         ),
     }
 
@@ -315,7 +310,7 @@ def accrue_p2p_lookup_fees(self, target_date_iso: str | None = None) -> dict:
 # operator może go odpalić ręcznie z django shell żeby zamknąć wszystkie sesje.
 
 
-@shared_task(name="ledger.run_settlement_all_zones")
+@shared_task(name='ledger.run_settlement_all_zones')
 def run_settlement_all_zones() -> dict:
     """Triggeruje settlement dla wszystkich 4 stref równolegle (asynchronicznie).
 
@@ -327,5 +322,5 @@ def run_settlement_all_zones() -> dict:
         async_result = run_settlement_session.delay(zone.value)
         results[zone.value] = async_result.id
 
-    logger.info("run_settlement_all_zones: enqueued %d tasków", len(results))
-    return {"status": "ENQUEUED", "tasks": results}
+    logger.info('run_settlement_all_zones: enqueued %d tasków', len(results))
+    return {'status': 'ENQUEUED', 'tasks': results}

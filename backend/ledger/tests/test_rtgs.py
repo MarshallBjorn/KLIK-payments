@@ -20,11 +20,9 @@ from ledger.rtgs.gateway import RTGSGateway
 from ledger.rtgs.gateways import (
     CHAPSGateway,
     FedNowGateway,
-    HTTPRTGSGateway,
     SORBNET3Gateway,
     TARGET2Gateway,
 )
-
 
 # ----------------------------------------------------------------------
 # Fake gateway dla testów dispatchera
@@ -146,9 +144,10 @@ class TestHTTPRTGSGateway:
         transfer = _make_transfer()
         session_id = uuid4()
 
-        with patch.object(gw, 'healthcheck', return_value=True), patch(
-            'ledger.rtgs.gateways.requests.post'
-        ) as mock_post:
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {
                 'transfer_id': str(transfer.transfer_id),
@@ -171,9 +170,10 @@ class TestHTTPRTGSGateway:
         gw = TARGET2Gateway(base_url='http://mock:9000/target2', timeout_seconds=5)
         transfer = _make_transfer()
 
-        with patch.object(gw, 'healthcheck', return_value=True), patch(
-            'ledger.rtgs.gateways.requests.post'
-        ) as mock_post:
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {
                 'transfer_id': str(transfer.transfer_id),
@@ -190,8 +190,9 @@ class TestHTTPRTGSGateway:
         gw = SORBNET3Gateway(base_url='http://mock:9000/sorbnet3', timeout_seconds=1)
         transfer = _make_transfer()
 
-        with patch.object(gw, 'healthcheck', return_value=True), patch(
-            'ledger.rtgs.gateways.requests.post', side_effect=requests.Timeout('timeout!')
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post', side_effect=requests.Timeout('timeout!')),
         ):
             results = gw.settle(uuid4(), [transfer])
 
@@ -202,9 +203,10 @@ class TestHTTPRTGSGateway:
         gw = CHAPSGateway(base_url='http://mock:9000/chaps')
         transfer = _make_transfer()
 
-        with patch.object(gw, 'healthcheck', return_value=True), patch(
-            'ledger.rtgs.gateways.requests.post'
-        ) as mock_post:
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
             mock_post.return_value.status_code = 422
             mock_post.return_value.text = 'Currency mismatch'
             mock_post.return_value.json.side_effect = ValueError('not json')
@@ -240,9 +242,10 @@ class TestHTTPRTGSGateway:
         gw = SORBNET3Gateway(base_url='http://mock:9000/sorbnet3')
         transfer = _make_transfer()
 
-        with patch.object(gw, 'healthcheck', return_value=True), patch(
-            'ledger.rtgs.gateways.requests.post'
-        ) as mock_post:
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {
                 'transfer_id': str(transfer.transfer_id),

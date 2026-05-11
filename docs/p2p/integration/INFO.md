@@ -3,9 +3,9 @@
 Dokument dla zespołów bankowych integrujących się z modułem **Telefony (P2P)**
 systemu KLIK. Zawiera słownik domenowy, referencję błędów oraz specyfikację API.
 
-**Wersja:** 1.0 (draft)
+**Wersja:** 1.0
 **Data:** 2026-04-26
-**Status:** W trakcie implementacji — specyfikacja może ulec niewielkim zmianom
+**Status:** Kompletny — czeka na sprawdzenie
 
 > **Powiązane dokumenty:**
 > - [C2B INFO.md](../../c2b/integration/INFO.md) — moduł Kody (płatności kodem)

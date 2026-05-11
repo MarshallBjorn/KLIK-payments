@@ -16,7 +16,7 @@ Praktyczne dla:
 - Lokalnego smoke-testu pełnego pipeline.
 """
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from common.enums import Zone
 from ledger.rtgs import RTGSDispatcher
