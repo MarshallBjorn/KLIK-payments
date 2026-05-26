@@ -65,13 +65,27 @@ REJECT_REASONS = {
 # Stan in-memory
 # --------------------------------------------------------------------------
 clients: dict[str, dict] = {
-    "user-1": {"name": "Jan Kowalski", "balance": 5000.00, "pin": "1234"},
-    "user-2": {"name": "Anna Nowak", "balance": 1500.00, "pin": "1234"},
+    "user-1": {
+        "name": "Jan Kowalski",
+        "balance": 5000.00,
+        "pin": "1234",
+        "phone": "+48501111111",
+        "iban": "PL61109010140000071219812874",
+    },
+    "user-2": {
+        "name": "Anna Nowak",
+        "balance": 1500.00,
+        "pin": "1234",
+        "phone": "+48502222222",
+        "iban": "PL27114020040000300201355387",
+    },
     "user-3": {
         "name": "Piotr Wiśniewski",
         "balance": 80.00,
         "pin": "1234",
-    },  # do testu INSUFFICIENT_FUNDS
+        "phone": "+48503333333",
+        "iban": "PL83102000810000060001234567",
+    },
 }
 
 # transaction_id -> {amount, currency, merchant_name, is_on_us, expiry_time(datetime), zone, user_id, received_at}
@@ -79,6 +93,8 @@ pending_authorizations: dict[str, dict] = {}
 
 # FIFO kodów wygenerowanych przez operatora (korelacja webhooka — KLIK nie wysyła user_id)
 _code_queue: list[dict] = []  # {user_id, code, created_at, expires_at}
+
+registered_aliases: dict[str, dict] = {}
 
 # audit log (najstarsze pierwsze)
 history: list[dict] = []
@@ -153,11 +169,18 @@ def _klik_headers() -> dict:
     }
 
 
-def _klik_post(path: str, payload: dict) -> dict:
+def _klik_request(method: str, path: str, payload: Optional[dict] = None) -> dict:
+    """Generyczne wywołanie do KLIK. Mapuje błędy upstream na HTTPException
+    z czytelnym `code`/`message` z error envelope KLIK-a.
+    """
     url = f"{KLIK_BASE_URL}{path}"
     try:
-        resp = httpx.post(
-            url, json=payload, headers=_klik_headers(), timeout=KLIK_HTTP_TIMEOUT
+        resp = httpx.request(
+            method,
+            url,
+            json=payload,
+            headers=_klik_headers(),
+            timeout=KLIK_HTTP_TIMEOUT
         )
     except httpx.RequestError as exc:
         logger.error("KLIK %s nieosiągalny: %s", url, exc)
@@ -182,6 +205,16 @@ def _klik_post(path: str, payload: dict) -> dict:
         )
     return body if isinstance(body, dict) else {}
 
+
+def _klik_post(path: str, payload: Optional[dict] = None) -> dict:
+    return _klik_request("POST", path, payload)
+
+
+def _klik_get(path: str, payload: Optional[dict] = None) -> dict:
+    return _klik_request("GET", path, payload)
+
+def _klik_delete(path: str, payload: Optional[dict] = None) -> dict:
+    return _klik_request("DELETE", path, payload)
 
 # --------------------------------------------------------------------------
 # App / lifespan / CORS
@@ -249,6 +282,17 @@ class AcceptIn(BaseModel):
 
 class RejectIn(BaseModel):
     reject_reason: str = "USER_DECLINED"
+
+
+class RegisterAliasIn(BaseModel):
+    """Opcjonalnie nadpisany telefon (domyślnie bierzemy z clients[user_id]['phone'])."""
+
+    phone: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
+class LookupIn(BaseModel):
+    phone: str
 
 
 # --------------------------------------------------------------------------
@@ -348,8 +392,17 @@ async def api_clear_api_key():
 
 @app.get("/api/clients")
 async def api_clients():
+    with _lock:
+        registered_phones = set(registered_aliases.keys())
     return [
-        {"id": uid, "name": c["name"], "balance": round(c["balance"], 2)}
+        {
+            "id": uid,
+            "name": c["name"],
+            "balance": round(c["balance"], 2),
+            "phone": c.get("phone"),
+            "iban": c.get("iban"),
+            "alias_registered": c.get("phone") in registered_phones,
+        }
         for uid, c in clients.items()
     ]
 
@@ -543,6 +596,136 @@ async def api_reject(transaction_id: str, payload: Annotated[RejectIn, Body()]):
         result=f"KLIK: {result.get('status', 'REJECTED')}",
     )
     return result
+
+
+# --------------------------------------------------------------------------
+# API dla UI — P2P (Telefony)
+#
+# Pattern analogiczny do /api/clients/{id}/generate-code: operator-mock woła
+# w imieniu klienta tego banku, my forwardujemy do KLIK z naszym X-KLIK-Bank-Api-Key.
+# --------------------------------------------------------------------------
+
+
+@app.post("/api/clients/{user_id}/register-alias")
+async def api_register_alias(
+    user_id: str, payload: Annotated[RegisterAliasIn, Body()] = RegisterAliasIn()
+):
+    """Operator rejestruje numer telefonu klienta jako alias P2P w KLIK.
+
+    Domyślnie używa `clients[user_id]['phone']`; można nadpisać przez body.
+    Po sukcesie cache'ujemy w `registered_aliases` żeby UI mogło listować
+    aliasy należące do tego banku (KLIK nie udostępnia list-by-bank).
+    """
+    if user_id not in clients:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"},
+        )
+    client = clients[user_id]
+    phone = (payload.phone or client.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PHONE_REQUIRED",
+                "message": "Klient nie ma przypisanego telefonu — podaj w body.",
+            },
+        )
+    iban = client.get("iban")
+    if not iban:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "IBAN_MISSING",
+                "message": f"Klient {user_id} bez przypisanego IBAN — niemożliwa rejestracja.",
+            },
+        )
+
+    result = _klik_post(
+        "/aliases/register", {"phone": phone, "iban": iban, "zone": BANK_ZONE}
+    )
+
+    entry = {
+        "alias_id": result.get("alias_id"),
+        "phone": phone,
+        "user_id": user_id,
+        "user_name": client["name"],
+        "iban": iban,
+        "zone": BANK_ZONE,
+        "registered_at": result.get("registered_at") or _now().isoformat(),
+    }
+    with _lock:
+        registered_aliases[phone] = entry
+
+    _log_history(
+        "ALIAS_REGISTERED",
+        phone=phone,
+        user_id=user_id,
+        user_name=client["name"],
+        iban=iban,
+        result="Alias zarejestrowany w KLIK",
+    )
+    return entry
+
+
+@app.get("/api/aliases")
+async def api_aliases():
+    """Lista aliasów zarejestrowanych przez ten bank (lokalny cache)."""
+    with _lock:
+        items = list(registered_aliases.values())
+    items.sort(key=lambda x: x.get("registered_at") or "")
+    return items
+
+
+@app.delete("/api/aliases/{phone}")
+async def api_alias_delete(phone: str):
+    """Usuwa alias z KLIK i z lokalnego cache."""
+    _klik_delete(f"/aliases/{phone}")
+    with _lock:
+        removed = registered_aliases.pop(phone, None)
+    _log_history(
+        "ALIAS_DELETED",
+        phone=phone,
+        user_id=(removed or {}).get("user_id"),
+        user_name=(removed or {}).get("user_name") or "—",
+        result="Alias usunięty z KLIK",
+    )
+    return {"deleted": True, "phone": phone}
+
+
+@app.post("/api/lookup")
+async def api_lookup(payload: Annotated[LookupIn, Body()]):
+    """Operator pyta KLIK o routing dla telefonu (bank odbiorcy + IBAN).
+
+    Zwraca `{"found": False}` na 404 zamiast propagować jako błąd HTTP —
+    "nie znaleziono" to normalny wynik UX, nie awaria.
+    """
+    phone = payload.phone.strip()
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PHONE_REQUIRED", "message": "Podaj numer telefonu."},
+        )
+    try:
+        result = _klik_get(f"/aliases/lookup/{phone}")
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            _log_history(
+                "LOOKUP_MISS",
+                phone=phone,
+                result="Nie znaleziono aliasu w KLIK",
+            )
+            return {"found": False, "phone": phone}
+        raise
+
+    _log_history(
+        "LOOKUP_HIT",
+        phone=phone,
+        bank_id=result.get("bank_id"),
+        bank_code=result.get("bank_code"),
+        result=f"Znaleziono w banku {result.get('bank_code') or result.get('bank_id')}",
+    )
+    return {"found": True, **result}
 
 
 @app.get("/api/history")

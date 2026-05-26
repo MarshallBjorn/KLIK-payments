@@ -105,7 +105,7 @@ def _mark_timeout(transaction: Transaction):
     """Oznacza transakcję jako TIMEOUT i aktualizuje cache."""
     transaction.status = TransactionStatus.TIMEOUT
     transaction.reject_reason = RejectReason.OTHER
-    transaction.save(update_fields=['status', 'reject_reason', 'updated_at'])
+    transaction.save(update_fields=['status', 'reject_reason'])
 
     service = CodeService()
     service.cache_transaction_status(

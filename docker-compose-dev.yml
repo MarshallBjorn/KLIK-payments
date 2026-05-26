@@ -54,3 +54,7 @@ services:
   bank-mock-frontend:
     ports:
       - "5174:5174"   # UI operatora
+
+  agent:
+    ports:
+      - "5175:5175"

@@ -31,6 +31,7 @@ function logout() { clear(); router.push('/setup') }
           {{ info.pending_count }}
         </span>
       </router-link>
+      <router-link to="/p2p" class="hover:underline" active-class="text-emerald-400">P2P</router-link>
       <router-link to="/history" class="hover:underline" active-class="text-emerald-400">Historia</router-link>
     </div>
     <div class="flex items-center gap-4 text-sm">

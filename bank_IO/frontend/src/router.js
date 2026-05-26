@@ -6,6 +6,7 @@ const routes = [
   { path: '/setup', component: () => import('./views/SetupView.vue') },
   { path: '/clients', component: () => import('./views/ClientsView.vue') },
   { path: '/pending', component: () => import('./views/PendingView.vue') },
+  { path: '/p2p', component: () => import('./views/P2PView.vue') },
   { path: '/history', component: () => import('./views/HistoryView.vue') },
 ]
 
