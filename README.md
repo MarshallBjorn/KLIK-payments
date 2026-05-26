@@ -22,6 +22,7 @@
     - [Moduł Cheques (Czeki)](#moduł-cheques-czeki)
     - [Moduł Recurring (Regularne transfery)](#moduł-recurring-regularne-transfery)
     - [Testowanie integracji](#testowanie-integracji)
+    - [Deployment](#deployment)
   - [Development workflow](#development-workflow)
     - [Pierwszy setup po klonowaniu repo](#pierwszy-setup-po-klonowaniu-repo)
     - [Codzienna praca](#codzienna-praca)
@@ -83,7 +84,9 @@ System obsługuje cztery strefy walutowo-krajowe (PL, EU, UK, US) z rygorystyczn
 ```
 klik_proj/
 ├── backend/              # Aplikacja Django (KLIK)
-├── agent/                # Frontend Vue (symulowany terminal) [TBD]
+├── agent/                # Frontend Vue — terminal agenta (:5175, w Dockerze)
+├── bank_IO/              # Mock banku (backend FastAPI :8100 + frontend Vue :5174)
+├── rtgs_mock/            # Mock RTGS (4 systemy: SORBNET3 / TARGET2 / CHAPS / FedNow)
 ├── docs/                 # Cała dokumentacja projektu
 │   ├── c2b/              # Moduł Kody (C2B)
 │   │   ├── bpmn/         # Diagramy BPMN + eksporty PNG
@@ -146,6 +149,12 @@ Szczegółowa dokumentacja podzielona jest tematycznie. README zawiera tylko pod
 
 Przykładowe wywołania API dla banków znajdziesz w [INFO.md](./docs/c2b/integration/INFO.md#api-reference).
 
+### Deployment
+
+| Dokument | Zawartość |
+|---|---|
+| [docs/deployment.md](./docs/deployment.md) | Dwie topologie: **single-host** (dev/demo, `make dev-d`) oraz **split per-VPS** (prod, `docker-compose-vps-a.yml` + `docker-compose-vps-b.yml`). Lista zmiennych env per VPS, diagram komunikacji, checklist, troubleshooting. |
+
 ## Development workflow
 
 ### Pierwszy setup po klonowaniu repo
@@ -169,13 +178,27 @@ make dev
 
 ```bash
 make dev              # Start środowiska
+make dev-d            # Start w tle
 make logs             # Logi live
 make shell            # Bash w kontenerze web
 make test             # Testy
+make smoke            # Smoke testy
 make lint             # Sprawdzenie linterów (ruff)
 make format           # Auto-format kodu
 make pre-commit       # Uruchom wszystkie hooki
 ```
+
+UI dostępne pod:
+
+| URL | Co to |
+|---|---|
+| `http://localhost:8000` | KLIK API + Django Admin (`/admin/`) |
+| `http://localhost:5175` | Agent (terminal) UI |
+| `http://localhost:5174` | Mock-bank UI (operator) |
+| `http://localhost:8100` | Mock-bank backend (webhook + REST dla UI) |
+| `http://localhost:9000` | Mock RTGS (4 systemy pod prefiksami) |
+
+> Dla **prod / split-deployment** (KLIK na jednym VPS, mock-bank na drugim) zerknij do [docs/deployment.md](./docs/deployment.md).
 
 ### CI
 
@@ -194,14 +217,17 @@ PR nie zostanie zmergowany jeśli CI jest czerwony.
 | Dokumentacja Cheques | ✅ kompletna |
 | Dokumentacja Recurring | ✅ kompletna |
 | Szkielet Django | ✅ kompletny |
-| Moduł C2B — backend | ✅🟡 kompletny - oczekuje na testy |
-| Moduł P2P — backend | ✅🟡 kompletny - oczekuje na testy |
+| Moduł C2B — backend | ✅ kompletny |
+| Moduł P2P — backend | ✅ kompletny |
 | Moduł Cheques — backend | 🟡 W trakcie implementacji |
 | Moduł Recurring — backend | 🟡 W trakcie implementacji |
 | Dispatcher RTGS | ✅ kompletny |
 | Mock RTGS | ✅ kompletny |
 | Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
-| Agent rozliczeniowy (Vue) | 🟡 W trakcie implementacji |
+| Agent rozliczeniowy (Vue, :5175, w Dockerze) | ✅ kompletny |
+| Mock banku — C2B (:8100 / :5174) | ✅ kompletny |
+| Mock banku — P2P (register / lookup / delete w UI) | ✅ kompletny |
+| Deployment guide (single-host + split per-VPS) | ✅ kompletny — patrz [docs/deployment.md](./docs/deployment.md) |
 
 ## Autorzy
 
