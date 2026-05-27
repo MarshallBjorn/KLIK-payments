@@ -93,6 +93,7 @@ class Transaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     authorized_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']

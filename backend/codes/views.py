@@ -182,8 +182,6 @@ class PaymentInitiateView(APIView):
             status=TransactionStatus.PENDING,
         )
 
-        print(transaction)
-
         # Cache statusu w Redisie
         service.cache_transaction_status(
             str(transaction.id),

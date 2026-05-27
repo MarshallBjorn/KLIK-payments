@@ -28,4 +28,5 @@ async function request(path, options = {}) {
 export const api = {
   get: (p) => request(p),
   post: (p, data) => request(p, { method: 'POST', body: JSON.stringify(data ?? {}) }),
+  del: (p) => request(p, { method: 'DELETE' }),
 }

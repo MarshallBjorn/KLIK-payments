@@ -23,6 +23,7 @@ help:
 	@echo "    make lint             Sprawdź kod (ruff)"
 	@echo "    make format           Sformatuj kod (ruff)"
 	@echo "    make pre-commit       Uruchom pre-commit hooks na całym repo"
+	@echo "    make smoke [MODULE=c2b|settle|all] [SCENARIO=...]"
 
 DEV = docker compose -f docker-compose.yml -f docker-compose-dev.yml
 PROD = docker compose -f docker-compose.yml -f docker-compose-prod.yml
@@ -79,3 +80,30 @@ pre-commit:
 
 lint-fix:
 	$(DEV) exec web ruff check --fix .
+
+
+# Smoke: zewnętrzne testy E2E przez realne kontenery
+# Użycie:
+#   make smoke                          # wszystko (c2b + settle)
+#   make smoke MODULE=c2b               # tylko C2B (mock-bank)
+#   make smoke MODULE=settle            # tylko settlement (mock-RTGS)
+#   make smoke MODULE=c2b SCENARIO=happy
+#   make smoke MODULE=settle SCENARIO=partial
+MODULE ?= all
+SCENARIO ?= all
+
+ifeq ($(MODULE),c2b)
+smoke:
+	$(DEV) exec web python manage.py smoke_c2b --scenario $(SCENARIO)
+else ifeq ($(MODULE),settle)
+smoke:
+	$(DEV) exec web python manage.py settle_smoke --scenario $(SCENARIO)
+else ifeq ($(MODULE),all)
+smoke:
+	$(DEV) exec web python manage.py smoke_c2b --scenario all
+	$(DEV) exec web python manage.py settle_smoke --scenario all
+else
+smoke:
+	@echo "Nieznany MODULE=$(MODULE). Uzyj: c2b | settle | all"
+	@exit 1
+endif
