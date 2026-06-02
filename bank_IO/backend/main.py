@@ -1,21 +1,24 @@
 """
-Mock Banku — symulator banku nadawcy w ekosystemie KLIK (moduł C2B).
+Mock Banku — symulator banku nadawcy w ekosystemie KLIK (C2B + P2P + Cheques).
 
-Domyka happy-path C2B end-to-end bez ręcznego curl-a:
+Domyka happy-path end-to-end bez ręcznego curl-a:
+
+C2B (kody):
   operator → "Wygeneruj kod"      (mock → KLIK POST /codes/generate)
-  agent (osobna apka)             (agent → KLIK POST /payments/initiate)
+  agent (osobna apka, :5175)      (agent → KLIK POST /payments/initiate)
   KLIK → POST /webhook/authorize  (mock zapisuje do pending, odpowiada od razu)
-  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm decision=ACCEPTED)
+  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm ACCEPTED)
 
-Stan in-memory — restart resetuje. Jeden deployment = jeden bank.
-Wzorzec: rtgs_mock/main.py.
+P2P (telefony):
+  operator rejestruje alias klienta → mock → KLIK POST /aliases/register
+  operator wykonuje lookup → mock → KLIK GET /aliases/lookup/{phone}
 
-Uwagi implementacyjne:
-- Webhook od KLIK (backend/codes/tasks.py) NIE zawiera user_id ani kodu — korelujemy
-  webhook z klientem po najstarszym niewygasłym kodzie z kolejki _code_queue (FIFO).
-  Jeśli KLIK kiedyś zacznie przekazywać user_id w payloadzie — użyjemy go.
-- /payments/confirm w realnym KLIK używa pola `decision` (ACCEPTED/REJECTED),
-  nie `status` jak w INFO.md (patrz backend/codes/serializers.py).
+Cheques (czeki):
+  operator wystawia czek dla klienta → mock → KLIK POST /cheques/issue (hold środków)
+  agent/sklep realizuje → KLIK POST /cheques/redeem → KLIK → mock POST /webhook/cheques/redeemed
+  operator anuluje czek → mock → KLIK POST /cheques/cancel → KLIK → mock POST /webhook/cheques/released
+
+Stan in-memory — restart resetuje.
 """
 
 from __future__ import annotations
@@ -38,28 +41,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bank-mock")
 
-
 # --------------------------------------------------------------------------
 # Konfiguracja z env
 # --------------------------------------------------------------------------
 BANK_NAME = os.environ.get("BANK_NAME", "BANK_MOCK")
 BANK_ZONE = os.environ.get("BANK_ZONE", "PL")
-KLIK_BASE_URL = os.environ.get("KLIK_BASE_URL", "http://localhost:8000/api/v1").rstrip(
-    "/"
-)
+KLIK_BASE_URL = os.environ.get("KLIK_BASE_URL", "http://localhost:8000/api/v1").rstrip("/")
 _klik_bank_api_key: str = os.environ.get("KLIK_BANK_API_KEY", "")
 KLIK_HTTP_TIMEOUT = float(os.environ.get("KLIK_HTTP_TIMEOUT", "10"))
 CODE_TTL_SECONDS = int(os.environ.get("KLIK_CODE_TTL_SECONDS", "120"))
 
 ZONE_CURRENCY = {"PL": "PLN", "EU": "EUR", "UK": "GBP", "US": "USD"}
-REJECT_REASONS = {
-    "INSUFFICIENT_FUNDS",
-    "USER_DECLINED",
-    "PIN_FAILED",
-    "AML_BLOCK",
-    "OTHER",
-}
-
+REJECT_REASONS = {"INSUFFICIENT_FUNDS", "USER_DECLINED", "PIN_FAILED", "AML_BLOCK", "OTHER"}
 
 # --------------------------------------------------------------------------
 # Stan in-memory
@@ -88,15 +81,10 @@ clients: dict[str, dict] = {
     },
 }
 
-# transaction_id -> {amount, currency, merchant_name, is_on_us, expiry_time(datetime), zone, user_id, received_at}
 pending_authorizations: dict[str, dict] = {}
-
-# FIFO kodów wygenerowanych przez operatora (korelacja webhooka — KLIK nie wysyła user_id)
-_code_queue: list[dict] = []  # {user_id, code, created_at, expires_at}
-
+_code_queue: list[dict] = []
 registered_aliases: dict[str, dict] = {}
-
-# audit log (najstarsze pierwsze)
+issued_cheques: dict[str, dict] = {}
 history: list[dict] = []
 
 _lock = threading.Lock()
@@ -122,112 +110,75 @@ def _client_name(user_id: Optional[str]) -> str:
 
 
 def _log_history(event_type: str, **fields) -> None:
-    entry = {
-        "id": str(uuid.uuid4()),
-        "timestamp": _now().isoformat(),
-        "type": event_type,
-        **fields,
-    }
+    entry = {"id": str(uuid.uuid4()), "timestamp": _now().isoformat(), "type": event_type, **fields}
     history.append(entry)
-    logger.info(
-        "history: %s %s", event_type, {k: v for k, v in fields.items() if k != "result"}
-    )
+    logger.info("history: %s %s", event_type, {k: v for k, v in fields.items() if k != "result"})
 
 
 def _prune_expired() -> None:
-    """Usuwa wygasłe kody z kolejki i wygasłe autoryzacje z pending (z notą do historii)."""
     now = _now()
     with _lock:
-        _code_queue[:] = [c for c in _code_queue if c["expires_at"] > now]
-        expired = [
-            tx
-            for tx, p in pending_authorizations.items()
-            if p["expiry_time"] and p["expiry_time"] <= now
+        expired_codes = [c for c in _code_queue if c["expires_at"] <= now]
+        for c in expired_codes:
+            _code_queue.remove(c)
+        expired_tx = [
+            tid for tid, p in pending_authorizations.items()
+            if p.get("expiry_time") and p["expiry_time"] <= now
         ]
-        for tx in expired:
-            p = pending_authorizations.pop(tx)
+    for tid in expired_tx:
+        with _lock:
+            p = pending_authorizations.pop(tid, None)
+        if p:
             _log_history(
                 "EXPIRED",
-                transaction_id=tx,
+                transaction_id=tid,
                 user_id=p.get("user_id"),
                 user_name=_client_name(p.get("user_id")),
                 amount=p["amount"],
                 currency=p["currency"],
-                merchant_name=p["merchant_name"],
-                result="Autoryzacja wygasła — operator nie zdążył zatwierdzić",
+                result="Autoryzacja wygasła",
             )
 
 
-# --------------------------------------------------------------------------
-# Wywołania do KLIK
-# --------------------------------------------------------------------------
-def _klik_headers() -> dict:
-    return {
+def _klik_headers(idempotency_key: Optional[str] = None) -> dict:
+    h = {
         "X-KLIK-Bank-Api-Key": _klik_bank_api_key,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
     }
+    return h
 
 
-def _klik_request(method: str, path: str, payload: Optional[dict] = None) -> dict:
-    """Generyczne wywołanie do KLIK. Mapuje błędy upstream na HTTPException
-    z czytelnym `code`/`message` z error envelope KLIK-a.
-    """
+def _klik_post(path: str, body: dict, idempotency_key: Optional[str] = None) -> dict:
+    if not _klik_bank_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "API_KEY_NOT_CONFIGURED", "message": "Klucz KLIK API nie jest skonfigurowany."},
+        )
     url = f"{KLIK_BASE_URL}{path}"
     try:
-        resp = httpx.request(
-            method,
-            url,
-            json=payload,
-            headers=_klik_headers(),
-            timeout=KLIK_HTTP_TIMEOUT
-        )
-    except httpx.RequestError as exc:
-        logger.error("KLIK %s nieosiągalny: %s", url, exc)
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "KLIK_UNREACHABLE", "message": f"KLIK nieosiągalny: {exc}"},
-        ) from exc
-    body: object = None
-    if resp.content:
-        try:
-            body = resp.json()
-        except ValueError:
-            body = {"raw": resp.text}
-    if resp.status_code >= 400:
-        err = body.get("error", {}) if isinstance(body, dict) else {}
-        raise HTTPException(
-            status_code=resp.status_code,
-            detail={
-                "code": err.get("code", f"HTTP_{resp.status_code}"),
-                "message": err.get("message", f"KLIK zwrócił HTTP {resp.status_code}"),
-            },
-        )
-    return body if isinstance(body, dict) else {}
+        resp = httpx.post(url, json=body, headers=_klik_headers(idempotency_key), timeout=KLIK_HTTP_TIMEOUT)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = {"message": resp.text}
+            raise HTTPException(status_code=resp.status_code, detail=detail)
+        return resp.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={"code": "KLIK_UNREACHABLE", "message": str(e)})
 
-
-def _klik_post(path: str, payload: Optional[dict] = None) -> dict:
-    return _klik_request("POST", path, payload)
-
-
-def _klik_get(path: str, payload: Optional[dict] = None) -> dict:
-    return _klik_request("GET", path, payload)
-
-def _klik_delete(path: str, payload: Optional[dict] = None) -> dict:
-    return _klik_request("DELETE", path, payload)
 
 # --------------------------------------------------------------------------
-# App / lifespan / CORS
+# Lifespan
 # --------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(
-        'Bank mock "%s" startuje. zone=%s KLIK=%s api_key=%s',
-        BANK_NAME,
-        BANK_ZONE,
-        KLIK_BASE_URL,
-        "ustawiony" if _klik_bank_api_key else "BRAK",
-    )
+    logger.info("Bank mock startuje: name=%s zone=%s KLIK=%s api_key=%s",
+                BANK_NAME, BANK_ZONE, KLIK_BASE_URL,
+                "ustawiony" if _klik_bank_api_key else "BRAK")
     stop = threading.Event()
 
     def _janitor():
@@ -244,15 +195,8 @@ async def lifespan(app: FastAPI):
     logger.info("Bank mock zamyka się.")
 
 
-app = FastAPI(
-    title=f"Mock Banku KLIK — {BANK_NAME}", version="1.0.0", lifespan=lifespan
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title=f"Mock Banku KLIK — {BANK_NAME}", version="1.1.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 # --------------------------------------------------------------------------
@@ -266,7 +210,7 @@ class AuthorizeWebhookIn(BaseModel):
     is_on_us: bool = False
     expiry_time: Optional[str] = None
     zone: Optional[str] = None
-    user_id: Optional[str] = None  # KLIK obecnie nie wysyła; jeśli wyśle — użyjemy
+    user_id: Optional[str] = None
     model_config = {"extra": "allow"}
 
 
@@ -285,8 +229,6 @@ class RejectIn(BaseModel):
 
 
 class RegisterAliasIn(BaseModel):
-    """Opcjonalnie nadpisany telefon (domyślnie bierzemy z clients[user_id]['phone'])."""
-
     phone: Optional[str] = None
     model_config = {"extra": "allow"}
 
@@ -295,20 +237,47 @@ class LookupIn(BaseModel):
     phone: str
 
 
+class ApiKeyIn(BaseModel):
+    api_key: str
+
+
+# --- Cheques ---
+class ChequeRedeemedWebhookIn(BaseModel):
+    cheque_id: str
+    transaction_id: Optional[str] = None
+    amount: str
+    currency: str
+    redeemed_at: Optional[str] = None
+    user_id: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
+class ChequeReleasedWebhookIn(BaseModel):
+    cheque_id: str
+    amount: str
+    currency: str
+    reason: str
+    released_at: Optional[str] = None
+    user_id: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
+class IssueChequeIn(BaseModel):
+    user_id: str
+    amount: float
+    ttl_seconds: int = 86400
+
+
 # --------------------------------------------------------------------------
-# Webhooki od KLIK
+# Webhooki od KLIK — C2B
 # --------------------------------------------------------------------------
 @app.post("/webhook/authorize")
 async def webhook_authorize(payload: Annotated[AuthorizeWebhookIn, Body()]):
     _prune_expired()
-    expiry_dt = _parse_iso(payload.expiry_time) or (
-        _now() + timedelta(seconds=CODE_TTL_SECONDS)
-    )
-
+    expiry_dt = _parse_iso(payload.expiry_time) or (_now() + timedelta(seconds=CODE_TTL_SECONDS))
     with _lock:
         user_id = payload.user_id
         if not user_id:
-            # KLIK nie przekazuje user_id w webhooku — bierzemy najstarszy niewygasły kod.
             while _code_queue:
                 cand = _code_queue.pop(0)
                 if cand["expires_at"] > _now():
@@ -325,17 +294,10 @@ async def webhook_authorize(payload: Annotated[AuthorizeWebhookIn, Body()]):
             "user_id": user_id,
             "received_at": _now().isoformat(),
         }
-
-    _log_history(
-        "WEBHOOK_RECEIVED",
-        transaction_id=payload.transaction_id,
-        user_id=user_id,
-        user_name=_client_name(user_id),
-        amount=payload.amount,
-        currency=payload.currency,
-        merchant_name=payload.merchant_name,
-        result="Oczekuje na decyzję klienta",
-    )
+    _log_history("WEBHOOK_RECEIVED", transaction_id=payload.transaction_id,
+                 user_id=user_id, user_name=_client_name(user_id),
+                 amount=payload.amount, currency=payload.currency,
+                 merchant_name=payload.merchant_name, result="Oczekuje na decyzję klienta")
     return {"received": True, "will_prompt_user": True}
 
 
@@ -345,7 +307,52 @@ async def webhook_ping(payload: Annotated[PingIn, Body()]):
 
 
 # --------------------------------------------------------------------------
-# API dla UI
+# Webhooki od KLIK — Cheques
+# --------------------------------------------------------------------------
+@app.post("/webhook/cheques/redeemed")
+async def webhook_cheque_redeemed(payload: Annotated[ChequeRedeemedWebhookIn, Body()]):
+    """KLIK informuje że czek został zrealizowany → zwalniamy hold, księgujemy debet."""
+    with _lock:
+        cheque = issued_cheques.get(payload.cheque_id)
+        if cheque:
+            cheque["status"] = "REDEEMED"
+            cheque["redeemed_at"] = payload.redeemed_at or _now().isoformat()
+            cheque["transaction_id"] = payload.transaction_id
+            user_id = cheque.get("user_id") or payload.user_id
+            # Debet już był pobrany przy issue (hold) — nie zmieniamy salda ponownie
+        else:
+            user_id = payload.user_id
+    _log_history("CHEQUE_REDEEMED", cheque_id=payload.cheque_id,
+                 transaction_id=payload.transaction_id, amount=payload.amount,
+                 currency=payload.currency, user_id=user_id,
+                 user_name=_client_name(user_id), result="Debet zaksięgowany, hold zwolniony")
+    return {"received": True}
+
+
+@app.post("/webhook/cheques/released")
+async def webhook_cheque_released(payload: Annotated[ChequeReleasedWebhookIn, Body()]):
+    """KLIK informuje że czek anulowany/wygasł → zwracamy hold do salda klienta."""
+    with _lock:
+        cheque = issued_cheques.get(payload.cheque_id)
+        if cheque and cheque["status"] == "ACTIVE":
+            cheque["status"] = payload.reason  # CANCELLED lub EXPIRED
+            cheque["cancelled_at"] = payload.released_at or _now().isoformat()
+            user_id = cheque.get("user_id") or payload.user_id
+            # Zwrot holda — środki wracają do salda
+            if user_id and user_id in clients:
+                clients[user_id]["balance"] = round(
+                    clients[user_id]["balance"] + cheque["amount"], 2
+                )
+        else:
+            user_id = payload.user_id
+    _log_history("CHEQUE_RELEASED", cheque_id=payload.cheque_id, amount=payload.amount,
+                 currency=payload.currency, reason=payload.reason, user_id=user_id,
+                 user_name=_client_name(user_id), result=f"Hold zwolniony ({payload.reason}), saldo przywrócone")
+    return {"received": True}
+
+
+# --------------------------------------------------------------------------
+# API dla UI — info i konfiguracja
 # --------------------------------------------------------------------------
 @app.get("/api/info")
 async def api_info():
@@ -356,16 +363,11 @@ async def api_info():
         "currency": ZONE_CURRENCY.get(BANK_ZONE, "PLN"),
         "klik_base_url": KLIK_BASE_URL,
         "klik_api_key_configured": bool(_klik_bank_api_key),
-        "klik_api_key_preview": (
-            (_klik_bank_api_key[:6] + "…") if _klik_bank_api_key else ""
-        ),
+        "klik_api_key_preview": (_klik_bank_api_key[:6] + "…") if _klik_bank_api_key else "",
         "pending_count": len(pending_authorizations),
         "clients_count": len(clients),
+        "cheques_count": len(issued_cheques),
     }
-
-
-class ApiKeyIn(BaseModel):
-    api_key: str
 
 
 @app.post("/api/config/api-key")
@@ -373,10 +375,7 @@ async def api_set_api_key(payload: Annotated[ApiKeyIn, Body()]):
     global _klik_bank_api_key
     key = payload.api_key.strip()
     if not key:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "EMPTY_KEY", "message": "Klucz nie może być pusty."},
-        )
+        raise HTTPException(status_code=400, detail={"code": "EMPTY_KEY", "message": "Klucz nie może być pusty."})
     _klik_bank_api_key = key
     _log_history("API_KEY_UPDATED", result="Klucz KLIK zmieniony w runtime")
     return {"configured": True, "preview": key[:6] + "…"}
@@ -390,17 +389,17 @@ async def api_clear_api_key():
     return {"configured": False}
 
 
+# --------------------------------------------------------------------------
+# API dla UI — klienci i C2B
+# --------------------------------------------------------------------------
 @app.get("/api/clients")
 async def api_clients():
     with _lock:
         registered_phones = set(registered_aliases.keys())
     return [
         {
-            "id": uid,
-            "name": c["name"],
-            "balance": round(c["balance"], 2),
-            "phone": c.get("phone"),
-            "iban": c.get("iban"),
+            "id": uid, "name": c["name"], "balance": round(c["balance"], 2),
+            "phone": c.get("phone"), "iban": c.get("iban"),
             "alias_registered": c.get("phone") in registered_phones,
         }
         for uid, c in clients.items()
@@ -410,40 +409,20 @@ async def api_clients():
 @app.post("/api/clients/{user_id}/generate-code")
 async def api_generate_code(user_id: str):
     if user_id not in clients:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"},
-        )
+        raise HTTPException(status_code=404, detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"})
     result = _klik_post("/codes/generate", {"user_id": user_id, "zone": BANK_ZONE})
     code = result.get("code")
     expires_in = int(result.get("expires_in", CODE_TTL_SECONDS))
     with _lock:
-        _code_queue.append(
-            {
-                "user_id": user_id,
-                "code": code,
-                "created_at": _now(),
-                "expires_at": _now() + timedelta(seconds=expires_in),
-            }
-        )
-    _log_history(
-        "CODE_GENERATED",
-        user_id=user_id,
-        user_name=clients[user_id]["name"],
-        code=code,
-        result=f"Kod ważny {expires_in}s",
-    )
-    return {
-        "code": code,
-        "expires_in": expires_in,
-        "expires_at": result.get("expires_at"),
-    }
+        _code_queue.append({"user_id": user_id, "code": code, "created_at": _now(),
+                            "expires_at": _now() + timedelta(seconds=expires_in)})
+    _log_history("CODE_GENERATED", user_id=user_id, user_name=clients[user_id]["name"],
+                 code=code, result=f"Kod ważny {expires_in}s")
+    return {"code": code, "expires_in": expires_in, "expires_at": result.get("expires_at")}
 
 
 def _pending_view(tx_id: str, p: dict) -> dict:
-    seconds_left = (
-        int((p["expiry_time"] - _now()).total_seconds()) if p["expiry_time"] else None
-    )
+    seconds_left = int((p["expiry_time"] - _now()).total_seconds()) if p.get("expiry_time") else None
     user_id = p.get("user_id")
     try:
         amount_f = float(p["amount"])
@@ -452,17 +431,11 @@ def _pending_view(tx_id: str, p: dict) -> dict:
     balance = clients[user_id]["balance"] if user_id in clients else None
     sufficient = balance is not None and amount_f is not None and balance >= amount_f
     return {
-        "transaction_id": tx_id,
-        "user_id": user_id,
-        "user_name": _client_name(user_id),
-        "amount": p["amount"],
-        "currency": p["currency"],
-        "merchant_name": p["merchant_name"],
-        "is_on_us": p["is_on_us"],
-        "zone": p["zone"],
-        "received_at": p["received_at"],
-        "seconds_left": max(seconds_left, 0) if seconds_left is not None else None,
-        "client_balance": round(balance, 2) if balance is not None else None,
+        "transaction_id": tx_id, "amount": p["amount"], "currency": p["currency"],
+        "merchant_name": p.get("merchant_name", ""), "is_on_us": p.get("is_on_us", False),
+        "seconds_left": max(0, seconds_left) if seconds_left is not None else None,
+        "zone": p.get("zone", BANK_ZONE), "user_id": user_id,
+        "user_name": _client_name(user_id), "client_balance": balance,
         "sufficient_balance": sufficient,
     }
 
@@ -471,9 +444,7 @@ def _pending_view(tx_id: str, p: dict) -> dict:
 async def api_pending():
     _prune_expired()
     with _lock:
-        items = [_pending_view(tx, p) for tx, p in pending_authorizations.items()]
-    items.sort(key=lambda x: x["received_at"])
-    return items
+        return [_pending_view(tid, p) for tid, p in pending_authorizations.items()]
 
 
 @app.post("/api/pending/{transaction_id}/accept")
@@ -482,79 +453,31 @@ async def api_accept(transaction_id: str, payload: Annotated[AcceptIn, Body()]):
     with _lock:
         p = pending_authorizations.get(transaction_id)
     if not p:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "PENDING_NOT_FOUND",
-                "message": "Brak takiej autoryzacji (mogła wygasnąć).",
-            },
-        )
-
+        raise HTTPException(status_code=404, detail={"code": "PENDING_NOT_FOUND", "message": "Brak takiej autoryzacji."})
     user_id = p.get("user_id")
     client = clients.get(user_id) if user_id else None
-
-    # PIN sprawdzany po stronie mocka
-    if client is not None and payload.pin != client["pin"]:
-        raise HTTPException(
-            status_code=400, detail={"code": "PIN_INVALID", "message": "Błędny PIN."}
-        )
-
+    if client and payload.pin != client.get("pin", "1234"):
+        raise HTTPException(status_code=422, detail={"code": "WRONG_PIN", "message": "Błędny PIN."})
     try:
         amount_f = float(p["amount"])
     except (TypeError, ValueError):
-        amount_f = 0.0
-
-    # Brak środków → automatyczny REJECT zamiast akceptacji
-    if client is not None and client["balance"] < amount_f:
-        _klik_post(
-            "/payments/confirm",
-            {
-                "transaction_id": transaction_id,
-                "decision": "REJECTED",
-                "reject_reason": "INSUFFICIENT_FUNDS",
-            },
-        )
+        amount_f = 0
+    if client and client["balance"] < amount_f:
+        result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "REJECTED", "reject_reason": "INSUFFICIENT_FUNDS"})
         with _lock:
             pending_authorizations.pop(transaction_id, None)
-        _log_history(
-            "REJECTED",
-            transaction_id=transaction_id,
-            user_id=user_id,
-            user_name=_client_name(user_id),
-            amount=p["amount"],
-            currency=p["currency"],
-            merchant_name=p["merchant_name"],
-            reject_reason="INSUFFICIENT_FUNDS",
-            result="Odrzucono automatycznie — brak środków",
-        )
-        return {
-            "auto_rejected": True,
-            "reject_reason": "INSUFFICIENT_FUNDS",
-            "message": "Brak wystarczających środków — autoryzacja odrzucona.",
-        }
-
-    result = _klik_post(
-        "/payments/confirm", {"transaction_id": transaction_id, "decision": "ACCEPTED"}
-    )
-
+        _log_history("REJECTED", transaction_id=transaction_id, user_id=user_id,
+                     user_name=_client_name(user_id), amount=p["amount"], result="Auto-reject INSUFFICIENT_FUNDS")
+        return {"auto_rejected": True, **result}
+    result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "ACCEPTED"})
     with _lock:
         pending_authorizations.pop(transaction_id, None)
         if client is not None:
             client["balance"] = round(client["balance"] - amount_f, 2)
-
-    _log_history(
-        "AUTHORIZED",
-        transaction_id=transaction_id,
-        user_id=user_id,
-        user_name=_client_name(user_id),
-        amount=p["amount"],
-        currency=p["currency"],
-        merchant_name=p["merchant_name"],
-        merchant_net=result.get("merchant_net"),
-        klik_fee=result.get("klik_fee"),
-        agent_fee=result.get("agent_fee"),
-        result=f"KLIK: {result.get('status', 'COMPLETED')}",
-    )
+    _log_history("AUTHORIZED", transaction_id=transaction_id, user_id=user_id,
+                 user_name=_client_name(user_id), amount=p["amount"], currency=p["currency"],
+                 merchant_name=p.get("merchant_name"), merchant_net=result.get("merchant_net"),
+                 result=f"KLIK: {result.get('status', 'COMPLETED')}")
     return {"auto_rejected": False, **result}
 
 
@@ -564,173 +487,159 @@ async def api_reject(transaction_id: str, payload: Annotated[RejectIn, Body()]):
     with _lock:
         p = pending_authorizations.get(transaction_id)
     if not p:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "PENDING_NOT_FOUND",
-                "message": "Brak takiej autoryzacji (mogła wygasnąć).",
-            },
-        )
-    reason = (
-        payload.reject_reason if payload.reject_reason in REJECT_REASONS else "OTHER"
-    )
-    result = _klik_post(
-        "/payments/confirm",
-        {
-            "transaction_id": transaction_id,
-            "decision": "REJECTED",
-            "reject_reason": reason,
-        },
-    )
+        raise HTTPException(status_code=404, detail={"code": "PENDING_NOT_FOUND", "message": "Brak autoryzacji."})
+    reason = payload.reject_reason if payload.reject_reason in REJECT_REASONS else "OTHER"
+    result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "REJECTED", "reject_reason": reason})
     with _lock:
         pending_authorizations.pop(transaction_id, None)
-    _log_history(
-        "REJECTED",
-        transaction_id=transaction_id,
-        user_id=p.get("user_id"),
-        user_name=_client_name(p.get("user_id")),
-        amount=p["amount"],
-        currency=p["currency"],
-        merchant_name=p["merchant_name"],
-        reject_reason=reason,
-        result=f"KLIK: {result.get('status', 'REJECTED')}",
-    )
+    _log_history("REJECTED", transaction_id=transaction_id, user_id=p.get("user_id"),
+                 user_name=_client_name(p.get("user_id")), amount=p["amount"], reject_reason=reason)
     return result
 
 
 # --------------------------------------------------------------------------
-# API dla UI — P2P (Telefony)
-#
-# Pattern analogiczny do /api/clients/{id}/generate-code: operator-mock woła
-# w imieniu klienta tego banku, my forwardujemy do KLIK z naszym X-KLIK-Bank-Api-Key.
+# API dla UI — P2P
 # --------------------------------------------------------------------------
-
-
 @app.post("/api/clients/{user_id}/register-alias")
-async def api_register_alias(
-    user_id: str, payload: Annotated[RegisterAliasIn, Body()] = RegisterAliasIn()
-):
-    """Operator rejestruje numer telefonu klienta jako alias P2P w KLIK.
-
-    Domyślnie używa `clients[user_id]['phone']`; można nadpisać przez body.
-    Po sukcesie cache'ujemy w `registered_aliases` żeby UI mogło listować
-    aliasy należące do tego banku (KLIK nie udostępnia list-by-bank).
-    """
+async def api_register_alias(user_id: str, payload: Annotated[RegisterAliasIn, Body()] = RegisterAliasIn()):
     if user_id not in clients:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"},
-        )
-    client = clients[user_id]
-    phone = (payload.phone or client.get("phone") or "").strip()
+        raise HTTPException(status_code=404, detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"})
+    client_data = clients[user_id]
+    phone = payload.phone or client_data.get("phone")
     if not phone:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "PHONE_REQUIRED",
-                "message": "Klient nie ma przypisanego telefonu — podaj w body.",
-            },
-        )
-    iban = client.get("iban")
-    if not iban:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "IBAN_MISSING",
-                "message": f"Klient {user_id} bez przypisanego IBAN — niemożliwa rejestracja.",
-            },
-        )
-
-    result = _klik_post(
-        "/aliases/register", {"phone": phone, "iban": iban, "zone": BANK_ZONE}
-    )
-
-    entry = {
-        "alias_id": result.get("alias_id"),
-        "phone": phone,
-        "user_id": user_id,
-        "user_name": client["name"],
-        "iban": iban,
-        "zone": BANK_ZONE,
-        "registered_at": result.get("registered_at") or _now().isoformat(),
-    }
+        raise HTTPException(status_code=422, detail={"code": "NO_PHONE", "message": "Brak numeru telefonu."})
+    result = _klik_post("/aliases/register", {"phone": phone, "zone": BANK_ZONE,
+                                               "account_identifier": {"type": "iban", "value": client_data["iban"]}})
     with _lock:
-        registered_aliases[phone] = entry
-
-    _log_history(
-        "ALIAS_REGISTERED",
-        phone=phone,
-        user_id=user_id,
-        user_name=client["name"],
-        iban=iban,
-        result="Alias zarejestrowany w KLIK",
-    )
-    return entry
+        registered_aliases[phone] = {"phone": phone, "user_id": user_id,
+                                     "user_name": client_data["name"], "iban": client_data["iban"],
+                                     "registered_at": _now().isoformat()}
+    _log_history("ALIAS_REGISTERED", user_id=user_id, user_name=client_data["name"],
+                 phone=phone, result="Alias zarejestrowany w KLIK")
+    return result
 
 
 @app.get("/api/aliases")
 async def api_aliases():
-    """Lista aliasów zarejestrowanych przez ten bank (lokalny cache)."""
     with _lock:
-        items = list(registered_aliases.values())
-    items.sort(key=lambda x: x.get("registered_at") or "")
-    return items
+        return list(registered_aliases.values())
 
 
 @app.delete("/api/aliases/{phone}")
-async def api_alias_delete(phone: str):
-    """Usuwa alias z KLIK i z lokalnego cache."""
-    _klik_delete(f"/aliases/{phone}")
+async def api_delete_alias(phone: str):
+    decoded_phone = phone.replace("%2B", "+").replace("%2b", "+")
     with _lock:
-        removed = registered_aliases.pop(phone, None)
-    _log_history(
-        "ALIAS_DELETED",
-        phone=phone,
-        user_id=(removed or {}).get("user_id"),
-        user_name=(removed or {}).get("user_name") or "—",
-        result="Alias usunięty z KLIK",
-    )
-    return {"deleted": True, "phone": phone}
+        alias = registered_aliases.get(decoded_phone)
+    if not alias:
+        raise HTTPException(status_code=404, detail={"code": "ALIAS_NOT_FOUND", "message": "Alias nie istnieje lokalnie."})
+    _klik_headers_manual = {"X-KLIK-Bank-Api-Key": _klik_bank_api_key, "Idempotency-Key": str(uuid.uuid4())}
+    try:
+        resp = httpx.delete(f"{KLIK_BASE_URL}/aliases/{decoded_phone}", headers=_klik_headers_manual, timeout=KLIK_HTTP_TIMEOUT)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.json())
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={"code": "KLIK_UNREACHABLE", "message": str(e)})
+    with _lock:
+        registered_aliases.pop(decoded_phone, None)
+    _log_history("ALIAS_DELETED", phone=decoded_phone, user_id=alias.get("user_id"),
+                 user_name=alias.get("user_name"), result="Alias usunięty z KLIK")
+    return {"deleted": True, "phone": decoded_phone}
 
 
 @app.post("/api/lookup")
 async def api_lookup(payload: Annotated[LookupIn, Body()]):
-    """Operator pyta KLIK o routing dla telefonu (bank odbiorcy + IBAN).
-
-    Zwraca `{"found": False}` na 404 zamiast propagować jako błąd HTTP —
-    "nie znaleziono" to normalny wynik UX, nie awaria.
-    """
-    phone = payload.phone.strip()
-    if not phone:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "PHONE_REQUIRED", "message": "Podaj numer telefonu."},
-        )
     try:
-        result = _klik_get(f"/aliases/lookup/{phone}")
-    except HTTPException as exc:
-        if exc.status_code == 404:
-            _log_history(
-                "LOOKUP_MISS",
-                phone=phone,
-                result="Nie znaleziono aliasu w KLIK",
-            )
-            return {"found": False, "phone": phone}
+        resp = httpx.get(f"{KLIK_BASE_URL}/aliases/lookup/{payload.phone}",
+                         headers={"X-KLIK-Bank-Api-Key": _klik_bank_api_key}, timeout=KLIK_HTTP_TIMEOUT)
+        if resp.status_code == 404:
+            _log_history("LOOKUP_MISS", phone=payload.phone, result="Alias nie znaleziony")
+            return {"found": False, "phone": payload.phone}
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.json())
+        data = resp.json()
+        _log_history("LOOKUP_HIT", phone=payload.phone, result=f"Znaleziono: {data.get('bank_code', '?')}")
+        return {"found": True, **data}
+    except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={"code": "KLIK_UNREACHABLE", "message": str(e)})
 
-    _log_history(
-        "LOOKUP_HIT",
-        phone=phone,
-        bank_id=result.get("bank_id"),
-        bank_code=result.get("bank_code"),
-        result=f"Znaleziono w banku {result.get('bank_code') or result.get('bank_id')}",
+
+# --------------------------------------------------------------------------
+# API dla UI — Cheques (Czeki)
+# --------------------------------------------------------------------------
+@app.post("/api/clients/{user_id}/issue-cheque")
+async def api_issue_cheque(user_id: str, payload: Annotated[IssueChequeIn, Body()]):
+    """Bank wystawia czek dla klienta: blokuje środki (hold) i rejestruje w KLIK."""
+    if user_id not in clients:
+        raise HTTPException(status_code=404, detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"})
+    client_data = clients[user_id]
+    if client_data["balance"] < payload.amount:
+        raise HTTPException(status_code=422, detail={"code": "INSUFFICIENT_FUNDS", "message": "Niewystarczające saldo."})
+
+    currency = ZONE_CURRENCY.get(BANK_ZONE, "PLN")
+    idempotency_key = str(uuid.uuid4())
+    result = _klik_post(
+        "/cheques/issue",
+        {"user_id": user_id, "amount": f"{payload.amount:.2f}", "currency": currency,
+         "zone": BANK_ZONE, "ttl_seconds": payload.ttl_seconds},
+        idempotency_key=idempotency_key,
     )
-    return {"found": True, **result}
+
+    cheque_id = result["cheque_id"]
+    with _lock:
+        issued_cheques[cheque_id] = {
+            "cheque_id": cheque_id, "code": result["code"], "user_id": user_id,
+            "user_name": client_data["name"], "amount": payload.amount, "currency": currency,
+            "status": "ACTIVE", "issued_at": result.get("issued_at"),
+            "expires_at": result.get("expires_at"), "cancelled_at": None,
+            "redeemed_at": None, "transaction_id": None,
+        }
+        # Symulacja holda — blokujemy środki klienta (zmniejszamy dostępne saldo)
+        client_data["balance"] = round(client_data["balance"] - payload.amount, 2)
+
+    _log_history("CHEQUE_ISSUED", cheque_id=cheque_id, code=result["code"], user_id=user_id,
+                 user_name=client_data["name"], amount=payload.amount, currency=currency,
+                 result=f"Czek wystawiony, kod: {result['code']}")
+    return result
+
+
+@app.get("/api/cheques")
+async def api_list_cheques():
+    with _lock:
+        return list(issued_cheques.values())
+
+
+@app.post("/api/cheques/{cheque_id}/cancel")
+async def api_cancel_cheque(cheque_id: str):
+    """Bank anuluje czek — hold zostanie zwolniony przez webhook /cheques/released."""
+    with _lock:
+        cheque = issued_cheques.get(cheque_id)
+    if not cheque:
+        raise HTTPException(status_code=404, detail={"code": "CHEQUE_NOT_FOUND", "message": "Czek nie istnieje."})
+    if cheque["status"] != "ACTIVE":
+        raise HTTPException(status_code=409,
+                            detail={"code": "CHEQUE_NOT_ACTIVE",
+                                    "message": f"Czek jest w stanie {cheque['status']}."})
+
+    result = _klik_post("/cheques/cancel", {"cheque_id": cheque_id})
+
+    with _lock:
+        cheque["status"] = "CANCELLED"
+        cheque["cancelled_at"] = _now().isoformat()
+
+    _log_history("CHEQUE_CANCELLED", cheque_id=cheque_id, code=cheque["code"],
+                 user_id=cheque["user_id"], user_name=cheque["user_name"],
+                 amount=cheque["amount"], result="Czek anulowany w KLIK")
+    return result
 
 
 @app.get("/api/history")
 async def api_history():
-    return list(reversed(history))
+    with _lock:
+        return list(reversed(history[-200:]))
 
 
 @app.get("/healthz")
