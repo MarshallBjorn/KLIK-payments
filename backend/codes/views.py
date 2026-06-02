@@ -296,7 +296,7 @@ class PaymentConfirmView(APIView):
 
         bank = request.user
         transaction_id = validated['transaction_id']
-        decision = validated['decision']
+        decision = validated['status']
         reject_reason = validated.get('reject_reason') or ''
 
         with db_transaction.atomic():

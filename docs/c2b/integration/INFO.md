@@ -241,8 +241,7 @@ Idempotency-Key: <uuid-v4> (dla żądań mutujących)
 ```json
 {
     "transaction_id": "550e8400-...",
-    "status": "ACCEPTED",
-    "authorization_timestamp": "2026-04-23T14:00:07Z"
+    "status": "ACCEPTED"
 }
 ```
 
@@ -262,17 +261,25 @@ Idempotency-Key: <uuid-v4> (dla żądań mutujących)
 {
     "transaction_id": "550e8400-...",
     "status": "COMPLETED",
-    "ledger_entries_count": 3
+    "amount_gross": "150.00",
+    "klik_fee": "1.50",
+    "agent_fee": "0.50",
+    "merchant_net": "148.00",
+    "currency": "PLN",
+    "reject_reason": "",
+    "completed_at": "2026-04-23T14:00:08Z"
 }
 ```
 
 **Uwagi:**
-- Endpoint jest idempotentny. Powtórny call z tym samym statusem zwraca 200 bez efektu.
+- `status` w request body przyjmuje wyłącznie `ACCEPTED` lub `REJECTED`. Nadawane przez bank po decyzji klienta.
+- `reject_reason` jest wymagany gdy `status = REJECTED` i musi być pusty gdy `status = ACCEPTED`.
+- Endpoint jest idempotentny. Powtórny call z tym samym statusem zwraca 200 bez efektu. Powtórny call z inną decyzją → `409`.
 - Bank MUSI wywołać `/confirm` w ciągu 60s od odpowiedzi na webhook autoryzacyjny. Brak confirmu w tym oknie = transakcja timeout.
 - Po `ACCEPTED`: KLIK zapisuje ledger entries, transakcja → COMPLETED, status widoczny dla agenta.
 - Po `REJECTED`: brak ledger entries, transakcja → REJECTED, agent dostaje błąd.
 
-**Możliwe błędy:** `401`, `403` (bank inny niż bank nadawcy kodu), `404_TRANSACTION_NOT_FOUND`, `409_PREMATURE_CONFIRM`, `422` (invalid status)
+**Możliwe błędy:** `400` (brak/nieprawidłowy `status`), `401`, `404_TRANSACTION_NOT_FOUND` (również gdy confirm wywołuje bank inny niż nadawca kodu), `409_PREMATURE_CONFIRM`, `409_CONFIRM_DECISION_CONFLICT`, `409_TRANSACTION_ALREADY_CLOSED`
 
 ---
 
