@@ -174,6 +174,7 @@ class PaymentInitiateView(APIView):
             agent=agent,
             merchant=merchant,
             code_snapshot=validated['code'],
+            user_id=code_payload['user_id'],
             amount_gross=validated['amount'],
             currency=validated['currency'],
             zone=agent.zone,

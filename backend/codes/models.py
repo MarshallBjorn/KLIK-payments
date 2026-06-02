@@ -44,6 +44,12 @@ class Transaction(models.Model):
         help_text='Kod KLIK użyty w transakcji. Audytowy — nie do lookupu.',
     )
 
+    user_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Internal client id po stronie banku nadawcy.',
+    )
+
     # Kwoty
     amount_gross = models.DecimalField(max_digits=12, decimal_places=2)
     klik_fee = models.DecimalField(
