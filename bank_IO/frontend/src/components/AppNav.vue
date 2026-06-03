@@ -11,7 +11,7 @@ const info = ref(null)
 let timer = null
 
 async function refresh() {
-  try { info.value = await getInfo() } catch { /* nav nie krzyczy */ }
+  try { info.value = (await getInfo()).data } catch { /* nav nie krzyczy */ }
 }
 onMounted(() => { refresh(); timer = setInterval(refresh, 3000) })
 onUnmounted(() => clearInterval(timer))
@@ -21,8 +21,8 @@ function logout() { clear(); router.push('/setup') }
 
 <template>
   <nav class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-6">
-      <router-link to="/" class="font-bold text-lg">BANK MOCK</router-link>
+    <div class="flex items-center gap-5 text-sm">
+      <router-link to="/" class="font-bold text-base">BANK MOCK</router-link>
       <router-link to="/clients" class="hover:underline" active-class="text-emerald-400">Klienci</router-link>
       <router-link to="/pending" class="hover:underline" active-class="text-emerald-400">
         Pending
@@ -32,6 +32,13 @@ function logout() { clear(); router.push('/setup') }
         </span>
       </router-link>
       <router-link to="/p2p" class="hover:underline" active-class="text-emerald-400">P2P</router-link>
+      <router-link to="/cheques" class="hover:underline" active-class="text-amber-400">
+        Czeki
+        <span v-if="info?.cheques_count"
+              class="ml-1 inline-flex items-center justify-center text-xs bg-amber-500 text-white rounded-full px-1.5">
+          {{ info.cheques_count }}
+        </span>
+      </router-link>
       <router-link to="/history" class="hover:underline" active-class="text-emerald-400">Historia</router-link>
     </div>
     <div class="flex items-center gap-4 text-sm">
