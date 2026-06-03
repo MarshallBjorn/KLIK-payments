@@ -151,6 +151,6 @@ sesji nettingowej i lecą do KLIK przez RTGS jak każda inna opłata.
   kolejki FIFO. Dla demo (jeden przepływ naraz) działa deterministycznie; przy
   równoległych przepływach kolejność może się rozjechać. Jeśli KLIK zacznie wysyłać
   `user_id` w payloadzie webhooka — mock automatycznie go użyje.
-- `/payments/confirm` w realnym KLIK przyjmuje pole **`decision`** (`ACCEPTED`/`REJECTED`),
-  nie `status` jak w `INFO.md` — mock wysyła `decision`.
+- `/payments/confirm` przyjmuje pole **`status`** (`ACCEPTED`/`REJECTED`) — zgodnie z `INFO.md`;
+  mock wysyła `status`.
 - Stan w pamięci; brak persistencji, autentykacji operatora, multi-bank — zgodnie z zakresem MVP.

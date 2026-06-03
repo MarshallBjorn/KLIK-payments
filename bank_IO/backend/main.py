@@ -5,7 +5,7 @@ Domyka happy-path C2B end-to-end bez ręcznego curl-a:
   operator → "Wygeneruj kod"      (mock → KLIK POST /codes/generate)
   agent (osobna apka)             (agent → KLIK POST /payments/initiate)
   KLIK → POST /webhook/authorize  (mock zapisuje do pending, odpowiada od razu)
-  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm decision=ACCEPTED)
+  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm status=ACCEPTED)
 
 Stan in-memory — restart resetuje. Jeden deployment = jeden bank.
 Wzorzec: rtgs_mock/main.py.
@@ -14,8 +14,7 @@ Uwagi implementacyjne:
 - Webhook od KLIK (backend/codes/tasks.py) NIE zawiera user_id ani kodu — korelujemy
   webhook z klientem po najstarszym niewygasłym kodzie z kolejki _code_queue (FIFO).
   Jeśli KLIK kiedyś zacznie przekazywać user_id w payloadzie — użyjemy go.
-- /payments/confirm w realnym KLIK używa pola `decision` (ACCEPTED/REJECTED),
-  nie `status` jak w INFO.md (patrz backend/codes/serializers.py).
+- /payments/confirm w realnym KLIK używa pola `status` (ACCEPTED/REJECTED).
 """
 
 from __future__ import annotations
@@ -510,7 +509,7 @@ async def api_accept(transaction_id: str, payload: Annotated[AcceptIn, Body()]):
             "/payments/confirm",
             {
                 "transaction_id": transaction_id,
-                "decision": "REJECTED",
+                "status": "REJECTED",
                 "reject_reason": "INSUFFICIENT_FUNDS",
             },
         )
@@ -534,7 +533,7 @@ async def api_accept(transaction_id: str, payload: Annotated[AcceptIn, Body()]):
         }
 
     result = _klik_post(
-        "/payments/confirm", {"transaction_id": transaction_id, "decision": "ACCEPTED"}
+        "/payments/confirm", {"transaction_id": transaction_id, "status": "ACCEPTED"}
     )
 
     with _lock:
@@ -578,7 +577,7 @@ async def api_reject(transaction_id: str, payload: Annotated[RejectIn, Body()]):
         "/payments/confirm",
         {
             "transaction_id": transaction_id,
-            "decision": "REJECTED",
+            "status": "REJECTED",
             "reject_reason": reason,
         },
     )
