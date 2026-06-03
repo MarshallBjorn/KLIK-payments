@@ -144,7 +144,7 @@ class TestPaymentConfirmAccepted:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -184,7 +184,7 @@ class TestPaymentConfirmAccepted:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -217,14 +217,14 @@ class TestPaymentConfirmAccepted:
         # Pierwsze
         response1 = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
         # Drugie — replay
         response2 = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -257,7 +257,7 @@ class TestPaymentConfirmRejected:
             '/api/v1/payments/confirm',
             {
                 'transaction_id': str(tx.id),
-                'decision': 'REJECTED',
+                'status': 'REJECTED',
                 'reject_reason': 'USER_DECLINED',
             },
             format='json',
@@ -288,7 +288,7 @@ class TestPaymentConfirmRejected:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'REJECTED'},
+            {'transaction_id': str(tx.id), 'status': 'REJECTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -329,7 +329,7 @@ class TestPaymentConfirmEdgeCases:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=plaintext_other,
         )
@@ -342,7 +342,7 @@ class TestPaymentConfirmEdgeCases:
             '/api/v1/payments/confirm',
             {
                 'transaction_id': '00000000-0000-0000-0000-000000000000',
-                'decision': 'ACCEPTED',
+                'status': 'ACCEPTED',
             },
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
@@ -370,7 +370,7 @@ class TestPaymentConfirmEdgeCases:
             '/api/v1/payments/confirm',
             {
                 'transaction_id': str(tx.id),
-                'decision': 'REJECTED',
+                'status': 'REJECTED',
                 'reject_reason': 'USER_DECLINED',
             },
             format='json',
@@ -380,7 +380,7 @@ class TestPaymentConfirmEdgeCases:
         # Potem ACCEPTED — konflikt
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -408,7 +408,7 @@ class TestPaymentConfirmEdgeCases:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -434,7 +434,7 @@ class TestPaymentConfirmEdgeCases:
 
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': str(tx.id), 'decision': 'ACCEPTED'},
+            {'transaction_id': str(tx.id), 'status': 'ACCEPTED'},
             format='json',
             HTTP_X_KLIK_BANK_API_KEY=key,
         )
@@ -448,7 +448,7 @@ class TestPaymentConfirmEdgeCases:
     def test_missing_auth_returns_401(self, client):
         response = client.post(
             '/api/v1/payments/confirm',
-            {'transaction_id': '00000000-0000-0000-0000-000000000000', 'decision': 'ACCEPTED'},
+            {'transaction_id': '00000000-0000-0000-0000-000000000000', 'status': 'ACCEPTED'},
             format='json',
         )
         assert response.status_code == 401

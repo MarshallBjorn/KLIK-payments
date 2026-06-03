@@ -99,7 +99,7 @@ class Bank(TimestampedModel):
         ),
     )
 
-    webhook_url = models.URLField(
+    webhook_url = models.CharField(
         max_length=500,
         blank=True,
         default="",

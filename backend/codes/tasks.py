@@ -55,6 +55,7 @@ def authorize_webhook_task(self, transaction_id: str):
 
     payload = {
         'transaction_id': str(transaction.id),
+        'user_id': transaction.user_id,
         'amount': str(transaction.amount_gross),
         'currency': transaction.currency,
         'merchant_name': transaction.merchant.name,

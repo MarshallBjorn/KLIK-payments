@@ -64,7 +64,7 @@ class PaymentStatusResponseSerializer(serializers.Serializer):
 
 class PaymentConfirmRequestSerializer(serializers.Serializer):
     transaction_id = serializers.UUIDField()
-    decision = serializers.ChoiceField(choices=['ACCEPTED', 'REJECTED'])
+    status = serializers.ChoiceField(choices=['ACCEPTED', 'REJECTED'])
     reject_reason = serializers.ChoiceField(
         choices=RejectReason.choices,
         required=False,
@@ -72,14 +72,14 @@ class PaymentConfirmRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        if attrs['decision'] == 'REJECTED' and not attrs.get('reject_reason'):
+        if attrs['status'] == 'REJECTED' and not attrs.get('reject_reason'):
             raise serializers.ValidationError(
-                {'reject_reason': 'reject_reason jest wymagany gdy decision jest REJECTED.'}
+                {'reject_reason': 'reject_reason jest wymagany gdy status jest REJECTED.'}
             )
 
-        if attrs['decision'] == 'ACCEPTED' and attrs.get('reject_reason'):
+        if attrs['status'] == 'ACCEPTED' and attrs.get('reject_reason'):
             raise serializers.ValidationError(
-                {'reject_reason': 'reject_reason musi być pusty gdy decision jest ACCEPTED.'}
+                {'reject_reason': 'reject_reason musi być pusty gdy status jest ACCEPTED.'}
             )
         return attrs
 

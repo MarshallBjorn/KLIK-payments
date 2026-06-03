@@ -7,7 +7,7 @@ C2B (kody):
   operator → "Wygeneruj kod"      (mock → KLIK POST /codes/generate)
   agent (osobna apka, :5175)      (agent → KLIK POST /payments/initiate)
   KLIK → POST /webhook/authorize  (mock zapisuje do pending, odpowiada od razu)
-  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm ACCEPTED)
+  operator → "Autoryzuj PIN-em"   (mock → KLIK POST /payments/confirm status=ACCEPTED)
 
 P2P (telefony):
   operator rejestruje alias klienta → mock → KLIK POST /aliases/register
@@ -18,7 +18,11 @@ Cheques (czeki):
   agent/sklep realizuje → KLIK POST /cheques/redeem → KLIK → mock POST /webhook/cheques/redeemed
   operator anuluje czek → mock → KLIK POST /cheques/cancel → KLIK → mock POST /webhook/cheques/released
 
-Stan in-memory — restart resetuje.
+Uwagi implementacyjne:
+- Webhook od KLIK (backend/codes/tasks.py) NIE zawiera user_id ani kodu — korelujemy
+  webhook z klientem po najstarszym niewygasłym kodzie z kolejki _code_queue (FIFO).
+  Jeśli KLIK kiedyś zacznie przekazywać user_id w payloadzie — użyjemy go.
+- /payments/confirm w realnym KLIK używa pola `status` (ACCEPTED/REJECTED).
 """
 
 from __future__ import annotations
@@ -461,15 +465,41 @@ async def api_accept(transaction_id: str, payload: Annotated[AcceptIn, Body()]):
     try:
         amount_f = float(p["amount"])
     except (TypeError, ValueError):
-        amount_f = 0
-    if client and client["balance"] < amount_f:
-        result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "REJECTED", "reject_reason": "INSUFFICIENT_FUNDS"})
+        amount_f = 0.0
+
+    # Brak środków → automatyczny REJECT zamiast akceptacji
+    if client is not None and client["balance"] < amount_f:
+        _klik_post(
+            "/payments/confirm",
+            {
+                "transaction_id": transaction_id,
+                "status": "REJECTED",
+                "reject_reason": "INSUFFICIENT_FUNDS",
+            },
+        )
         with _lock:
             pending_authorizations.pop(transaction_id, None)
-        _log_history("REJECTED", transaction_id=transaction_id, user_id=user_id,
-                     user_name=_client_name(user_id), amount=p["amount"], result="Auto-reject INSUFFICIENT_FUNDS")
-        return {"auto_rejected": True, **result}
-    result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "ACCEPTED"})
+        _log_history(
+            "REJECTED",
+            transaction_id=transaction_id,
+            user_id=user_id,
+            user_name=_client_name(user_id),
+            amount=p["amount"],
+            currency=p["currency"],
+            merchant_name=p["merchant_name"],
+            reject_reason="INSUFFICIENT_FUNDS",
+            result="Odrzucono automatycznie — brak środków",
+        )
+        return {
+            "auto_rejected": True,
+            "reject_reason": "INSUFFICIENT_FUNDS",
+            "message": "Brak wystarczających środków — autoryzacja odrzucona.",
+        }
+
+    result = _klik_post(
+        "/payments/confirm", {"transaction_id": transaction_id, "status": "ACCEPTED"}
+    )
+
     with _lock:
         pending_authorizations.pop(transaction_id, None)
         if client is not None:
@@ -487,9 +517,24 @@ async def api_reject(transaction_id: str, payload: Annotated[RejectIn, Body()]):
     with _lock:
         p = pending_authorizations.get(transaction_id)
     if not p:
-        raise HTTPException(status_code=404, detail={"code": "PENDING_NOT_FOUND", "message": "Brak autoryzacji."})
-    reason = payload.reject_reason if payload.reject_reason in REJECT_REASONS else "OTHER"
-    result = _klik_post("/payments/confirm", {"transaction_id": transaction_id, "decision": "REJECTED", "reject_reason": reason})
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PENDING_NOT_FOUND",
+                "message": "Brak takiej autoryzacji (mogła wygasnąć).",
+            },
+        )
+    reason = (
+        payload.reject_reason if payload.reject_reason in REJECT_REASONS else "OTHER"
+    )
+    result = _klik_post(
+        "/payments/confirm",
+        {
+            "transaction_id": transaction_id,
+            "status": "REJECTED",
+            "reject_reason": reason,
+        },
+    )
     with _lock:
         pending_authorizations.pop(transaction_id, None)
     _log_history("REJECTED", transaction_id=transaction_id, user_id=p.get("user_id"),

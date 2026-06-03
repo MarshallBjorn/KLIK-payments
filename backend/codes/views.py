@@ -174,6 +174,7 @@ class PaymentInitiateView(APIView):
             agent=agent,
             merchant=merchant,
             code_snapshot=validated['code'],
+            user_id=code_payload['user_id'],
             amount_gross=validated['amount'],
             currency=validated['currency'],
             zone=agent.zone,
@@ -295,7 +296,7 @@ class PaymentConfirmView(APIView):
 
         bank = request.user
         transaction_id = validated['transaction_id']
-        decision = validated['decision']
+        decision = validated['status']
         reject_reason = validated.get('reject_reason') or ''
 
         with db_transaction.atomic():
