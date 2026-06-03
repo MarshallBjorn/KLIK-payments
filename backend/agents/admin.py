@@ -1,6 +1,9 @@
 """Django Admin dla apki agents."""
 
 from django.contrib import admin, messages
+from django.db import transaction
+from django.http import HttpResponseRedirect
+from django.urls import path, reverse
 from django.utils.html import format_html
 
 from agents.authentication import generate_api_key
@@ -37,7 +40,10 @@ class AgentAdmin(admin.ModelAdmin):
             'Bezpieczeństwo',
             {
                 'fields': ('api_key_hash',),
-                'description': 'Klucze API generuje się przez akcję "Generate new API key".',
+                'description': (
+                    'Klucz API generuje się przyciskiem "Wygeneruj nowy klucz API" '
+                    'na tej stronie lub akcją masową na liście agentów.'
+                ),
             },
         ),
         (
@@ -51,11 +57,71 @@ class AgentAdmin(admin.ModelAdmin):
     inlines = [MSCAgreementInline]
     actions = ['generate_new_api_key']
 
+    change_form_template = 'admin/agents/agent/change_form.html'
+
     @admin.display(description='Account')
     def account_display(self, obj):
         from common.account import format_account_identifier
 
         return format_account_identifier(obj.account_identifier)
+
+    # ------------------------------------------------------------------
+    # Custom URL — przycisk "Wygeneruj nowy klucz API" w widoku edycji
+    # ------------------------------------------------------------------
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                '<uuid:agent_id>/rotate-api-key/',
+                self.admin_site.admin_view(self.rotate_api_key_view),
+                name='agents_agent_rotate_api_key',
+            ),
+        ]
+        # Custom przed defaultami, żeby nie zostały złapane przez `<path:object_id>/`.
+        return custom + urls
+
+    def rotate_api_key_view(self, request, agent_id):
+        """Endpoint admin uruchamiany przyciskiem na stronie edycji agenta.
+
+        Tylko POST (CSRF chroni przed CSRF-based abuse). Rotuje klucz,
+        pokazuje plaintext jeden raz przez messages, redirect do widoku edycji.
+        """
+        agent = self.get_object(request, agent_id)
+        if agent is None:
+            messages.error(request, 'Agent nie istnieje.')
+            return HttpResponseRedirect(reverse('admin:agents_agent_changelist'))
+
+        if request.method != 'POST':
+            # Strażnik na wypadek GET — bez tego dałoby się zrotować klucz przez
+            # samo wejście linkiem/odświeżenie (CSRF chroni tylko POST).
+            messages.error(request, 'Generowanie klucza wymaga akcji POST.')
+            return HttpResponseRedirect(
+                reverse('admin:agents_agent_change', args=[agent.pk]),
+            )
+
+        with transaction.atomic():
+            plaintext, hash_value = generate_api_key()
+            agent.api_key_hash = hash_value
+            agent.save(update_fields=['api_key_hash', 'updated_at'])
+
+        messages.warning(
+            request,
+            format_html(
+                'Wygenerowano nowy klucz API dla <b>{}</b>. '
+                'Skopiuj go teraz — nie zostanie pokazany ponownie:<br>'
+                '<code style="font-size:1.1em">{}</code>',
+                agent.name,
+                plaintext,
+            ),
+        )
+        return HttpResponseRedirect(
+            reverse('admin:agents_agent_change', args=[agent.pk]),
+        )
+
+    # ------------------------------------------------------------------
+    # Akcja masowa (bez zmian)
+    # ------------------------------------------------------------------
 
     @admin.action(description='Wygeneruj nowy klucz API (unieważnia stary)')
     def generate_new_api_key(self, request, queryset):
@@ -85,9 +151,6 @@ class AgentAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if not change and not obj.api_key_hash:
-            from django.contrib import messages
-            from django.utils.html import format_html
-
             plaintext, hash_value = generate_api_key()
             obj.api_key_hash = hash_value
             super().save_model(request, obj, form, change)
