@@ -1,12 +1,8 @@
 <script setup>
 import { ref } from 'vue'
-import { useConfig } from '../composables/useConfig.js'
 import { redeemCheque } from '../api/cheques.js'
 import MerchantPicker from '../components/MerchantPicker.vue'
 import PaymentResult from '../components/PaymentResult.vue'
-
-const { get } = useConfig()
-const cfg = get()
 
 const code = ref('')
 const merchantId = ref('')
@@ -21,7 +17,10 @@ async function redeem() {
   status.value = 'pending'
 
   try {
-    const r = await redeemCheque({ cheque_code: code.value, merchant_id: merchantId.value })
+    const r = await redeemCheque({
+      cheque_code: code.value,
+      merchant_id: merchantId.value,
+    })
     result.value = r
     status.value = 'completed'
   } catch (e) {
@@ -43,11 +42,10 @@ const canSubmit = () =>
 
 <template>
   <div class="bg-white rounded-lg shadow p-6">
-    <div class="flex items-center gap-3 mb-1">
-      <h1 class="text-2xl font-bold">Terminal Czek — Realizacja czeku KLIK</h1>
-      <span class="px-2 py-0.5 text-xs bg-amber-100 text-amber-800 rounded font-medium">MOCK</span>
-    </div>
-    <p class="text-sm text-slate-500 mb-6">Backend modułu Cheques w trakcie implementacji. Ten ekran symuluje docelowy flow.</p>
+    <h1 class="text-2xl font-bold mb-1">Terminal Czek — Realizacja czeku KLIK</h1>
+    <p class="text-sm text-slate-500 mb-6">
+      Wprowadź 9-cyfrowy kod czeku otrzymany od klienta i wybierz merchanta.
+    </p>
 
     <form @submit.prevent="redeem" class="space-y-4">
       <MerchantPicker v-model="merchantId" />
@@ -61,7 +59,6 @@ const canSubmit = () =>
           placeholder="123456789"
           class="w-full px-3 py-2 border rounded font-mono text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
-        <p class="text-xs text-slate-400 mt-1">Podpowiedź: <code>000000000</code> zwróci błąd; inne kody zwrócą losową kwotę.</p>
       </div>
 
       <div class="flex gap-3 pt-2">
@@ -72,7 +69,13 @@ const canSubmit = () =>
         >
           Zrealizuj czek
         </button>
-        <button type="button" @click="reset" class="px-4 py-3 bg-slate-200 hover:bg-slate-300 rounded">Reset</button>
+        <button
+          type="button"
+          @click="reset"
+          class="px-4 py-3 bg-slate-200 hover:bg-slate-300 rounded"
+        >
+          Reset
+        </button>
       </div>
     </form>
 
