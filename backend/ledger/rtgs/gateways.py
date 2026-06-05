@@ -96,10 +96,12 @@ class HTTPRTGSGateway(RTGSGateway):
         return results
 
     def healthcheck(self) -> bool:
-        """GET {base_url}/healthz, krótki timeout — to ma być szybki check."""
+        """GET {base_url}{HEALTH_PATH}, krótki timeout — to ma być szybki check."""
         url = f'{self.base_url}{self.HEALTH_PATH}'
         try:
-            response = requests.get(url, timeout=min(5, self.timeout_seconds))
+            response = requests.get(
+                url, timeout=min(5, self.timeout_seconds), **self._request_kwargs()
+            )
             return response.status_code == 200
         except requests.RequestException as exc:
             logger.warning('RTGS %s healthcheck failed: %s', self.system_name, exc)
@@ -108,6 +110,114 @@ class HTTPRTGSGateway(RTGSGateway):
     # ------------------------------------------------------------------
     # Hooks dla podklas
     # ------------------------------------------------------------------
+
+    def _request_kwargs(self) -> dict:
+        """Dodatkowe kwargs do requests (np. cert/verify dla mTLS). Default: brak."""
+        return {}
+
+    def _validate_transfer(self, transfer: TransferRequest) -> str | None:
+        """Walidacja lokalna PRZED wysyłką. Zwraca powód błędu lub None.
+
+        Pozwala odrzucić transfer jako FAILED bez rzucania wyjątku (który
+        wywaliłby całą pętlę settle). Default: brak walidacji.
+        """
+        return None
+
+    def _post_settle(self, url: str, session_id: UUID, transfer: TransferRequest):
+        """Wykonuje POST settlementu. Default: JSON (format mocka).
+
+        Podklasy o innym formacie (TARGET2 → ISO 20022 XML) nadpisują tę metodę.
+        """
+        payload = self.build_payload(session_id, transfer)
+        headers = {'Content-Type': 'application/json'}
+        if self.api_key:
+            headers['X-RTGS-Api-Key'] = self.api_key
+        return requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=self.timeout_seconds,
+            **self._request_kwargs(),
+        )
+
+    def _settle_one(self, session_id: UUID, transfer: TransferRequest) -> TransferResult:
+        """Wysyła jeden transfer; mapuje wyjątki sieciowe na TIMEOUT."""
+        # Walidacja lokalna (np. brak BIC/IBAN dla TARGET) → FAILED bez HTTP.
+        error = self._validate_transfer(transfer)
+        if error:
+            logger.warning(
+                'RTGS %s: transfer %s odrzucony lokalnie: %s',
+                self.system_name,
+                transfer.transfer_id,
+                error,
+            )
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.FAILED,
+                failure_reason=error,
+            )
+
+        url = f'{self.base_url}{self.SETTLE_PATH}'
+        try:
+            response = self._post_settle(url, session_id, transfer)
+        except requests.Timeout:
+            logger.warning(
+                'RTGS %s: timeout dla transferu %s (>%ds)',
+                self.system_name,
+                transfer.transfer_id,
+                self.timeout_seconds,
+            )
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.TIMEOUT,
+                failure_reason=f'Timeout {self.timeout_seconds}s',
+            )
+        except requests.RequestException as exc:
+            logger.warning(
+                'RTGS %s: błąd sieci dla transferu %s: %s',
+                self.system_name,
+                transfer.transfer_id,
+                exc,
+            )
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.TIMEOUT,
+                failure_reason=f'Network error: {exc}',
+            )
+
+        if response.status_code >= 400:
+            logger.warning(
+                'RTGS %s: HTTP %d dla transferu %s, body=%s',
+                self.system_name,
+                response.status_code,
+                transfer.transfer_id,
+                response.text[:200],
+            )
+            try:
+                body = response.json()
+                reason = body.get('failure_reason') or body.get('detail') or response.text[:100]
+            except ValueError:
+                reason = response.text[:100] or f'HTTP {response.status_code}'
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.FAILED,
+                failure_reason=reason,
+            )
+
+        try:
+            return self.parse_response(transfer, response.json())
+        except (ValueError, KeyError) as exc:
+            logger.error(
+                'RTGS %s: niewłaściwa odpowiedź dla transferu %s: %s',
+                self.system_name,
+                transfer.transfer_id,
+                exc,
+            )
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.FAILED,
+                failure_reason=f'Invalid response: {exc}',
+            )
 
     def build_payload(self, session_id: UUID, transfer: TransferRequest) -> dict[str, Any]:
         """Zmapuj TransferRequest na payload zgodny z protokołem RTGS.
@@ -158,89 +268,6 @@ class HTTPRTGSGateway(RTGSGateway):
             failure_reason=response_json.get('failure_reason', ''),
         )
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _settle_one(self, session_id: UUID, transfer: TransferRequest) -> TransferResult:
-        """Wysyła jeden transfer; mapuje wyjątki sieciowe na TIMEOUT."""
-        url = f'{self.base_url}{self.SETTLE_PATH}'
-        payload = self.build_payload(session_id, transfer)
-        headers = {'Content-Type': 'application/json'}
-        if self.api_key:
-            headers['X-RTGS-Api-Key'] = self.api_key
-
-        try:
-            response = requests.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=self.timeout_seconds,
-            )
-        except requests.Timeout:
-            logger.warning(
-                'RTGS %s: timeout dla transferu %s (>%ds)',
-                self.system_name,
-                transfer.transfer_id,
-                self.timeout_seconds,
-            )
-            return TransferResult(
-                transfer_id=transfer.transfer_id,
-                status=TransferStatus.TIMEOUT,
-                failure_reason=f'Timeout {self.timeout_seconds}s',
-            )
-        except requests.RequestException as exc:
-            logger.warning(
-                'RTGS %s: błąd sieci dla transferu %s: %s',
-                self.system_name,
-                transfer.transfer_id,
-                exc,
-            )
-            return TransferResult(
-                transfer_id=transfer.transfer_id,
-                status=TransferStatus.TIMEOUT,
-                failure_reason=f'Network error: {exc}',
-            )
-
-        # HTTP 4xx/5xx — z perspektywy biznesowej najczęściej FAILED
-        # (np. 422 bank niewypłacalny, 403 limit przekroczony). Worker
-        # to interpretuje jako "transfer nie wszedł, ledger entries wracają".
-        if response.status_code >= 400:
-            logger.warning(
-                'RTGS %s: HTTP %d dla transferu %s, body=%s',
-                self.system_name,
-                response.status_code,
-                transfer.transfer_id,
-                response.text[:200],
-            )
-            try:
-                body = response.json()
-                reason = body.get('failure_reason') or body.get('detail') or response.text[:100]
-            except ValueError:
-                reason = response.text[:100] or f'HTTP {response.status_code}'
-            return TransferResult(
-                transfer_id=transfer.transfer_id,
-                status=TransferStatus.FAILED,
-                failure_reason=reason,
-            )
-
-        try:
-            return self.parse_response(transfer, response.json())
-        except (ValueError, KeyError) as exc:
-            # Niewłaściwy JSON od RTGS — traktujemy jak fail, ale logujemy
-            # bo to wskazuje na problem integracyjny, nie biznesowy.
-            logger.error(
-                'RTGS %s: niewłaściwa odpowiedź dla transferu %s: %s',
-                self.system_name,
-                transfer.transfer_id,
-                exc,
-            )
-            return TransferResult(
-                transfer_id=transfer.transfer_id,
-                status=TransferStatus.FAILED,
-                failure_reason=f'Invalid response: {exc}',
-            )
-
 
 # ----------------------------------------------------------------------
 # 4 konkretne implementacje — dla MVP różnią się tylko `system_name`.
@@ -257,9 +284,111 @@ class SORBNET3Gateway(HTTPRTGSGateway):
 
 
 class TARGET2Gateway(HTTPRTGSGateway):
-    """TARGET2 — system EBC dla strefy euro (EUR)."""
+    """TARGET — RTGS strefy euro (EUR), ISO 20022 pacs.008-like XML.
+
+    W odróżnieniu od pozostałych systemów (JSON do mocka), TARGET:
+    - przyjmuje XML na POST /transfers/xml (Content-Type: application/xml),
+    - identyfikuje banki po BIC (DbtrAgt/CdtrAgt) + IBAN-y kont (DbtrAcct/CdtrAcct),
+    - zwraca JSON {status:"settled", transfer_id, created_at} lub {detail:"..."},
+    - nie ma /healthz → liveness sprawdzamy przez GET /banks,
+    - opcjonalnie wymaga mTLS (client cert + CA).
+    """
 
     system_name = 'TARGET2'
+    SETTLE_PATH = '/transfers/xml'
+    HEALTH_PATH = '/banks'
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = '',
+        timeout_seconds: int = 30,
+        *,
+        client_cert: str = '',
+        client_key: str = '',
+        ca_cert: str = '',
+    ):
+        super().__init__(base_url, api_key, timeout_seconds)
+        self._client_cert = client_cert
+        self._client_key = client_key
+        self._ca_cert = ca_cert
+
+    def _request_kwargs(self) -> dict:
+        """mTLS: client cert do uwierzytelnienia + CA do weryfikacji serwera.
+
+        Gdy certy nie są skonfigurowane (puste ścieżki) → zwykłe http/https
+        bez client-certa. Dzięki temu działa zarówno na http (bez mTLS),
+        jak i na https+mTLS — zależnie od configu.
+        """
+        kwargs: dict = {}
+        if self._client_cert and self._client_key:
+            kwargs['cert'] = (self._client_cert, self._client_key)
+        if self._ca_cert:
+            kwargs['verify'] = self._ca_cert
+        return kwargs
+
+    def _validate_transfer(self, transfer: TransferRequest) -> str | None:
+        """TARGET wymaga BIC obu agentów i IBAN-ów obu kont."""
+        missing = [
+            field
+            for field, value in (
+                ('from_bic', transfer.from_bic),
+                ('to_bic', transfer.to_bic),
+                ('from_iban', transfer.from_iban),
+                ('to_iban', transfer.to_iban),
+            )
+            if not value
+        ]
+        if missing:
+            return f'Brak danych TARGET (uzupełnij bic/settlement_iban banku): {", ".join(missing)}'
+        return None
+
+    def _post_settle(self, url: str, session_id: UUID, transfer: TransferRequest):
+        xml = self.build_xml(session_id, transfer)
+        headers = {'Content-Type': 'application/xml'}
+        return requests.post(
+            url,
+            data=xml.encode('utf-8'),
+            headers=headers,
+            timeout=self.timeout_seconds,
+            **self._request_kwargs(),
+        )
+
+    def build_xml(self, session_id: UUID, transfer: TransferRequest) -> str:
+        """Buduje komunikat ISO 20022 (CstmrCdtTrfInitn) dla pojedynczego netto-transferu."""
+        amount = f'{transfer.amount:.2f}'
+        return (
+            '<Document>'
+            '<CstmrCdtTrfInitn>'
+            f'<PmtId><EndToEndId>{transfer.transfer_id.hex}</EndToEndId></PmtId>'
+            f'<Amt><InstdAmt Ccy="{transfer.currency}">{amount}</InstdAmt></Amt>'
+            f'<DbtrAcct><Id><IBAN>{transfer.from_iban}</IBAN></Id></DbtrAcct>'
+            f'<CdtrAcct><Id><IBAN>{transfer.to_iban}</IBAN></Id></CdtrAcct>'
+            f'<DbtrAgt><FinInstnId><BIC>{transfer.from_bic}</BIC></FinInstnId></DbtrAgt>'
+            f'<CdtrAgt><FinInstnId><BIC>{transfer.to_bic}</BIC></FinInstnId></CdtrAgt>'
+            f'<RmtInf><Ustrd>KLIK netting {session_id}</Ustrd></RmtInf>'
+            '</CstmrCdtTrfInitn>'
+            '</Document>'
+        )
+
+    def parse_response(self, transfer, response_json) -> TransferResult:
+        """TARGET: status=='settled' → SUCCESS; rtgs_reference = jego transfer_id."""
+        status_str = (response_json.get('status') or '').lower()
+        if status_str == 'settled':
+            return TransferResult(
+                transfer_id=transfer.transfer_id,
+                status=TransferStatus.SUCCESS,
+                rtgs_reference=str(response_json.get('transfer_id', '')),
+            )
+        reason = (
+            response_json.get('detail') or response_json.get('status') or 'TARGET: nieznany status'
+        )
+        logger.warning('RTGS TARGET2: transfer %s nie settled: %s', transfer.transfer_id, reason)
+        return TransferResult(
+            transfer_id=transfer.transfer_id,
+            status=TransferStatus.FAILED,
+            failure_reason=str(reason),
+        )
 
 
 class CHAPSGateway(HTTPRTGSGateway):

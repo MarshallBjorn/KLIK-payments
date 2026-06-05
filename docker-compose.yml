@@ -43,6 +43,7 @@ services:
     networks:
       - klik_net
       - chaps_klik
+      - target_klik
 
   worker:
     build: ./backend
@@ -62,6 +63,7 @@ services:
     networks:
       - klik_net
       - chaps_klik
+      - target_klik
 
   beat:
     build: ./backend
@@ -149,3 +151,5 @@ networks:
     driver: bridge
   chaps_klik:
     name: chaps_klik
+  target_klik:
+    name: target_klik
