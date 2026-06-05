@@ -10,16 +10,14 @@ from common.enums import Zone
 # POST /cheques/issue
 # ---------------------------------------------------------------------------
 
-CHEQUE_TTL_MIN_SECONDS = 3600       # 1h
-CHEQUE_TTL_MAX_SECONDS = 259200     # 72h
+CHEQUE_TTL_MIN_SECONDS = 3600  # 1h
+CHEQUE_TTL_MAX_SECONDS = 259200  # 72h
 CHEQUE_TTL_DEFAULT_SECONDS = 86400  # 24h
 
 
 class ChequeIssueRequestSerializer(serializers.Serializer):
     user_id = serializers.CharField(max_length=200)
-    amount = serializers.DecimalField(
-        max_digits=12, decimal_places=2, min_value=Decimal('0.01')
-    )
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
     currency = serializers.RegexField(regex=r'^[A-Z]{3}$', max_length=3)
     zone = serializers.ChoiceField(choices=Zone.choices)
     ttl_seconds = serializers.IntegerField(required=False, default=CHEQUE_TTL_DEFAULT_SECONDS)

@@ -59,9 +59,11 @@ def notify_cheque_redeemed(self, cheque_id: str):
         countdown = RETRY_COUNTDOWN[retry_num] if retry_num < len(RETRY_COUNTDOWN) else 120
         logger.warning(
             'notify_cheque_redeemed: failed (attempt %d) → %s, retry in %ds',
-            retry_num + 1, exc, countdown,
+            retry_num + 1,
+            exc,
+            countdown,
         )
-        raise self.retry(exc=exc, countdown=countdown)
+        raise self.retry(exc=exc, countdown=countdown) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +107,11 @@ def notify_cheque_released(self, cheque_id: str, reason: str):
         countdown = RETRY_COUNTDOWN[retry_num] if retry_num < len(RETRY_COUNTDOWN) else 120
         logger.warning(
             'notify_cheque_released: failed (attempt %d) → %s, retry in %ds',
-            retry_num + 1, exc, countdown,
+            retry_num + 1,
+            exc,
+            countdown,
         )
-        raise self.retry(exc=exc, countdown=countdown)
+        raise self.retry(exc=exc, countdown=countdown) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -127,11 +131,9 @@ def expire_due_cheques():
     expired_count = 0
 
     # Batch: SELECT FOR UPDATE SKIP LOCKED aby uniknąć kolizji z redeem/cancel
-    cheques_to_expire = (
-        Cheque.objects.filter(status=ChequeStatus.ACTIVE, expires_at__lte=now)
-        .select_for_update(skip_locked=True)
-        [:1000]
-    )
+    cheques_to_expire = Cheque.objects.filter(
+        status=ChequeStatus.ACTIVE, expires_at__lte=now
+    ).select_for_update(skip_locked=True)[:1000]
 
     with db_transaction.atomic():
         ids_to_expire = list(cheques_to_expire.values_list('id', flat=True))
