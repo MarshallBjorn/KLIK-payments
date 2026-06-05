@@ -219,6 +219,14 @@ class SettlementTransfer(models.Model):
         blank=True,
         help_text='Identyfikator zwrócony przez RTGS po dispatch.',
     )
+
+    failure_reason = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Powód odrzucenia transferu prezez RTGS (wypełniany przy statusie FAILED).',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)

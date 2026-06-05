@@ -42,6 +42,7 @@ services:
       start_period: 30s
     networks:
       - klik_net
+      - chaps_klik
 
   worker:
     build: ./backend
@@ -60,6 +61,7 @@ services:
       retries: 3
     networks:
       - klik_net
+      - chaps_klik
 
   beat:
     build: ./backend
@@ -145,3 +147,5 @@ services:
 networks:
   klik_net:
     driver: bridge
+  chaps_klik:
+    name: chaps_klik
