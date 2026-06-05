@@ -8,7 +8,7 @@ Endpointy:
 """
 
 import logging
-import random
+import secrets
 import string
 
 from django.db import transaction as db_transaction
@@ -46,7 +46,6 @@ from common.enums import ZONE_CURRENCY
 from common.exceptions import (
     BankInactiveError,
     CurrencyMismatchError,
-    IdempotencyConflictError,
     InsufficientPermissionsError,
     MerchantNotFoundError,
     NoActiveMSCError,
@@ -92,9 +91,7 @@ class ChequeIssueView(APIView):
 
         # Zone musi zgadzać się ze strefą banku
         if d['zone'] != bank.zone:
-            raise ZoneMismatchError(
-                detail=f'Strefa {d["zone"]} ≠ strefa banku {bank.zone}.'
-            )
+            raise ZoneMismatchError(detail=f'Strefa {d["zone"]} ≠ strefa banku {bank.zone}.')
 
         # Currency musi pasować do strefy
         expected_currency = ZONE_CURRENCY.get(bank.zone)
@@ -129,7 +126,7 @@ class ChequeIssueView(APIView):
 
         # Generuj unikalny 9-cyfrowy kod (unikaj kolizji z ACTIVE)
         for _ in range(10):
-            code = ''.join(random.choices(string.digits, k=9))
+            code = ''.join(secrets.choice(string.digits) for _ in range(9))
             if not Cheque.objects.filter(code=code, status=ChequeStatus.ACTIVE).exists():
                 break
 
@@ -147,7 +144,12 @@ class ChequeIssueView(APIView):
 
         logger.info(
             'cheque issued: id=%s code=%s bank=%s amount=%s %s ttl=%ds',
-            cheque.id, code, bank.id, d['amount'], d['currency'], d['ttl_seconds'],
+            cheque.id,
+            code,
+            bank.id,
+            d['amount'],
+            d['currency'],
+            d['ttl_seconds'],
         )
 
         response_data = {
@@ -217,12 +219,12 @@ class ChequeRedeemView(APIView):
                 historical = Cheque.objects.filter(code=d['cheque_code']).first()
                 if historical:
                     if historical.status == ChequeStatus.REDEEMED:
-                        raise ChequeAlreadyRedeemedError()
+                        raise ChequeAlreadyRedeemedError() from None
                     if historical.status == ChequeStatus.CANCELLED:
-                        raise ChequeAlreadyCancelledError()
+                        raise ChequeAlreadyCancelledError() from None
                     if historical.status == ChequeStatus.EXPIRED:
-                        raise ChequeExpiredError()
-                raise ChequeNotFoundError()
+                        raise ChequeExpiredError() from None
+                raise ChequeNotFoundError() from None
 
             # Sprawdź czy nie wygasł już (może jeszcze ACTIVE ale expires_at minął)
             if cheque.expires_at <= now:
@@ -283,7 +285,11 @@ class ChequeRedeemView(APIView):
 
         logger.info(
             'cheque redeemed: cheque=%s tx=%s amount=%s agent=%s merchant=%s',
-            cheque.id, transaction.id, cheque.amount, agent.id, merchant.id,
+            cheque.id,
+            transaction.id,
+            cheque.amount,
+            agent.id,
+            merchant.id,
         )
 
         response_data = {
@@ -404,8 +410,8 @@ class ChequeStatusView(APIView):
         # Kontrola dostępu:
         # - bank widzi tylko swoje czeki
         # - agent widzi tylko czeki które zrealizował
-        from banks.models import Bank
         from agents.models import Agent
+        from banks.models import Bank
 
         if isinstance(user, Bank):
             if cheque.issuer_bank_id != user.id:

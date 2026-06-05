@@ -22,12 +22,22 @@ class ChequeAdmin(admin.ModelAdmin):
     list_filter = ('status', 'zone', 'currency', 'issuer_bank')
     search_fields = ('code', 'issuer_user_id', 'id')
     readonly_fields = (
-        'id', 'code', 'issuer_bank', 'issuer_user_id',
-        'amount', 'currency', 'zone',
-        'issued_at', 'expires_at',
-        'redeemed_at', 'cancelled_at', 'expired_at',
-        'transaction', 'idempotency_key',
-        'created_at', 'updated_at',
+        'id',
+        'code',
+        'issuer_bank',
+        'issuer_user_id',
+        'amount',
+        'currency',
+        'zone',
+        'issued_at',
+        'expires_at',
+        'redeemed_at',
+        'cancelled_at',
+        'expired_at',
+        'transaction',
+        'idempotency_key',
+        'created_at',
+        'updated_at',
     )
     ordering = ('-created_at',)
     date_hierarchy = 'issued_at'
@@ -36,7 +46,19 @@ class ChequeAdmin(admin.ModelAdmin):
         ('Identyfikacja', {'fields': ('id', 'code', 'idempotency_key')}),
         ('Wystawca', {'fields': ('issuer_bank', 'issuer_user_id')}),
         ('Kwota', {'fields': ('amount', 'currency', 'zone')}),
-        ('Stan', {'fields': ('status', 'issued_at', 'expires_at', 'redeemed_at', 'cancelled_at', 'expired_at')}),
+        (
+            'Stan',
+            {
+                'fields': (
+                    'status',
+                    'issued_at',
+                    'expires_at',
+                    'redeemed_at',
+                    'cancelled_at',
+                    'expired_at',
+                )
+            },
+        ),
         ('Powiązania', {'fields': ('transaction',)}),
         ('Audyt', {'fields': ('created_at', 'updated_at')}),
     )

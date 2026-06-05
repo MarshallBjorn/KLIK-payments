@@ -19,10 +19,10 @@ from django.utils.html import format_html
 
 from banks.models import Bank
 
-
 # ---------------------------------------------------------------------------
 # Formularz — nadpisuje URLField → CharField dla pól webhook
 # ---------------------------------------------------------------------------
+
 
 class BankAdminForm(forms.ModelForm):
     """Własny form który przyjmuje dowolny string (lub pusty) jako URL webhooka.
@@ -53,7 +53,19 @@ class BankAdminForm(forms.ModelForm):
 
     class Meta:
         model = Bank
-        fields = '__all__'
+        fields = (
+            'name',
+            'webhook_url',
+            'cheques_webhook_url',
+            'zone',
+            'currency',
+            'debt_limit',
+            'active',
+            'c2b_enabled',
+            'p2p_enabled',
+            'p2p_lookup_fee',
+            'cheques_enabled',
+        )
 
     def clean_webhook_url(self):
         return self.cleaned_data.get('webhook_url', '').strip()
@@ -66,7 +78,7 @@ class BankAdminForm(forms.ModelForm):
 # Admin
 # ---------------------------------------------------------------------------
 
-_API_KEY_CACHE_PREFIX = 'dev:bank_api_key_preview:'
+_API_KEY_CACHE_PREFIX = 'dev:bank_api_key_preview:'  # pragma: allowlist secret
 _API_KEY_CACHE_TTL = 300  # 5 minut
 
 
@@ -105,8 +117,10 @@ class BankAdmin(admin.ModelAdmin):
             {
                 'fields': (
                     'c2b_enabled',
-                    'p2p_enabled', 'p2p_lookup_fee',
-                    'cheques_enabled', 'cheques_webhook_url',
+                    'p2p_enabled',
+                    'p2p_lookup_fee',
+                    'cheques_enabled',
+                    'cheques_webhook_url',
                 ),
             },
         ),
@@ -235,9 +249,7 @@ class BankAdmin(admin.ModelAdmin):
         if not rotated:
             return
 
-        rows = '<br>'.join(
-            f'<b>{name}</b>: <code>{key}</code>' for name, key in rotated
-        )
+        rows = '<br>'.join(f'<b>{name}</b>: <code>{key}</code>' for name, key in rotated)
         messages.warning(
             request,
             format_html(

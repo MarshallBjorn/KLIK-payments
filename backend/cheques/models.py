@@ -1,7 +1,6 @@
 """Modele apki cheques — Cheque."""
 
 import uuid
-from decimal import Decimal
 
 from django.db import models
 
