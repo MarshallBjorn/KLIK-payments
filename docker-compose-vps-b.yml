@@ -1,0 +1,63 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  VPS-B — Mock-bank + Mock-RTGS (pull-based, obrazy z GHCR)        ║
+# ║                                                                    ║
+# ║  Serwisy: rtgs-mock, bank-mock-backend, bank-mock-frontend.        ║
+# ║  Stateless in-memory — VPS-B NIE potrzebuje Postgresa ani Redisa.  ║
+# ║  Bez `build:` — VPS tylko ściąga gotowe obrazy (oszczędność RAM).  ║
+# ║                                                                    ║
+# ║  Wymaga .env (patrz docs/deployment.md, sekcje VPS-B) oraz, jeśli  ║
+# ║  pakiety GHCR są prywatne: `docker login ghcr.io`.                 ║
+# ╚══════════════════════════════════════════════════════════════════╝
+services:
+  rtgs-mock:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/rtgs-mock:${IMAGE_TAG:-latest}
+    command: uvicorn main:app --host 0.0.0.0 --port 9000
+    environment:
+      RTGS_LATENCY_MIN_MS: ${RTGS_LATENCY_MIN_MS:-50}
+      RTGS_LATENCY_MAX_MS: ${RTGS_LATENCY_MAX_MS:-300}
+      RTGS_FAIL_RATE: ${RTGS_FAIL_RATE:-0.0}
+      RTGS_TIMEOUT_RATE: ${RTGS_TIMEOUT_RATE:-0.0}
+      RTGS_BLACKLIST: ${RTGS_BLACKLIST:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "9000:9000"  # za reverse proxy + TLS
+    restart: unless-stopped
+    networks: [bank_net]
+
+  bank-mock-backend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/bank-mock-backend:${IMAGE_TAG:-latest}
+    command: uvicorn main:app --host 0.0.0.0 --port 8100
+    environment:
+      BANK_NAME: ${BANK_MOCK_NAME:-BANK_MOCK}
+      BANK_ZONE: ${BANK_MOCK_ZONE:-PL}
+      KLIK_BASE_URL: ${BANK_MOCK_KLIK_BASE_URL}
+      KLIK_BANK_API_KEY: ${BANK_MOCK_KLIK_BANK_API_KEY}
+      KLIK_CODE_TTL_SECONDS: ${KLIK_CODE_TTL_SECONDS:-120}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "8100:8100"  # webhook od KLIK + API dla UI — za reverse proxy + TLS
+    restart: unless-stopped
+    networks: [bank_net]
+
+  bank-mock-frontend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/bank-mock-frontend:${IMAGE_TAG:-latest}
+    depends_on:
+      - bank-mock-backend
+    ports:
+      - "${BANK_MOCK_FRONTEND_PORT:-5174}:80"  # UI operatora — za reverse proxy + TLS
+    restart: unless-stopped
+    networks: [bank_net]
+
+networks:
+  bank_net:
+    driver: bridge

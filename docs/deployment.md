@@ -5,10 +5,73 @@ KLIK Payments wspiera dwie topologie:
 | Tryb | Kiedy używać | Komenda startowa |
 |---|---|---|
 | **Single-host** | dev / demo / showcase — wszystko na jednej maszynie | `make dev-d` (lub `make prod`) |
-| **Split per-VPS** | prod / pre-prod — dwa osobne VPS, jeden dla KLIK, drugi dla mock-banku i RTGS | `docker compose -f docker-compose-vps-<a\|b>.yml up -d` |
+| **Split per-VPS** | prod / akademicki deploy — dwa osobne VPS, jeden dla KLIK, drugi dla mock-banku i RTGS | `docker compose -f docker-compose-vps-<a\|b>.yml pull && up -d` |
 
 Single-host korzysta z istniejących `docker-compose.yml + docker-compose-dev.yml`
-(lub `+ docker-compose-prod.yml`). Wszystko niżej dotyczy **split**.
+(lub `+ docker-compose-prod.yml`) i **buduje obrazy lokalnie**.
+
+Split jest **pull-based**: obrazy buduje CI i pushuje na GHCR, a każdy VPS tylko je
+ściąga (`docker compose pull`) — nie buduje nic u siebie. To kluczowe, bo jeden z
+VPS-ów ma mało RAM-u i build (zwłaszcza `npm` + Vite) by go zarżnął. Wszystko niżej
+dotyczy **split**, poza ostatnią sekcją.
+
+---
+
+## Obrazy i CD (GHCR) — „podwójne CD"
+
+Pipeline `.github/workflows/cd.yml` robi dwa kroki:
+
+1. **build** — buduje 5 obrazów i pushuje je na GitHub Container Registry (GHCR).
+2. **deploy-vps-a** / **deploy-vps-b** — loguje się przez SSH na każdy VPS i robi
+   `docker compose -f docker-compose-vps-<a|b>.yml pull && up -d`. VPS-y odpalają się
+   równolegle — stąd „podwójne".
+
+### Obrazy
+
+| Komponent | Obraz GHCR | Używany na | Z czego |
+|---|---|---|---|
+| `backend` | `ghcr.io/marshallbjorn/klik-payments/backend` | VPS-A (`web`, `worker`, `beat`) | `backend/Dockerfile` |
+| `agent` | `ghcr.io/marshallbjorn/klik-payments/agent` | VPS-A (`agent`) | `agent/Dockerfile` (Vue build → nginx + proxy `/api`) |
+| `rtgs-mock` | `ghcr.io/marshallbjorn/klik-payments/rtgs-mock` | VPS-B | `rtgs_mock/Dockerfile` |
+| `bank-mock-backend` | `ghcr.io/marshallbjorn/klik-payments/bank-mock-backend` | VPS-B | `bank_IO/backend/Dockerfile` |
+| `bank-mock-frontend` | `ghcr.io/marshallbjorn/klik-payments/bank-mock-frontend` | VPS-B | `bank_IO/frontend/Dockerfile` (Vue build → nginx statyk) |
+
+> Frontendy w split lecą jako **statyk pod nginx** (nie Vite dev server) — lekkie i
+> bez `npm install` na VPS-ie. `agent` ma w nginx reverse proxy `/api → web:8000`,
+> `bank-mock-frontend` to czysty statyk (backend konfiguruje operator w UI runtime).
+
+### Trigger i tagi
+
+| Zdarzenie | Tagi obrazów | Deploy na VPS? |
+|---|---|---|
+| push na `main` | `latest`, `main`, `sha-<short>` | tak (`IMAGE_TAG=latest`) |
+| tag `v*` (np. `v1.2.3`) | `1.2.3`, `1.2` | tak (`IMAGE_TAG=1.2.3`) |
+| `workflow_dispatch` (ręcznie) | jak ref | tylko gdy ref = main/tag |
+
+### Wymagane sekrety GitHub (Settings → Secrets and variables → Actions)
+
+Build używa wbudowanego `GITHUB_TOKEN` (ma `packages: write`) — nic nie trzeba dodawać.
+Deploy potrzebuje per-VPS (zalecane: w **Environments** `vps-a` / `vps-b`):
+
+| Sekret | Opis |
+|---|---|
+| `VPS_A_HOST` / `VPS_B_HOST` | IP lub domena VPS-a |
+| `VPS_A_USER` / `VPS_B_USER` | użytkownik SSH |
+| `VPS_A_SSH_KEY` / `VPS_B_SSH_KEY` | prywatny klucz SSH (PEM) |
+| `VPS_A_PORT` / `VPS_B_PORT` | port SSH (np. 22) |
+| `VPS_A_PATH` / `VPS_B_PATH` | ścieżka do sklonowanego repo na VPS-ie |
+| `GHCR_USER` + `GHCR_TOKEN` | *(opcjonalne)* login do GHCR na VPS-ie, jeśli pakiety są **prywatne**. PAT z `read:packages`. Gdy pakiety publiczne — zostaw puste. |
+
+> **Auth GHCR na VPS-ie:** najprościej ustawić pakiety jako *public*
+> (GitHub → Packages → dany obraz → Package settings → Change visibility).
+> Wtedy `docker compose pull` działa bez logowania i `GHCR_*` są zbędne.
+
+### Założenia deployu przez SSH
+
+Skrypt deploy zakłada, że na każdym VPS-ie jest **sklonowane repo** w `VPS_*_PATH`
+z wypełnionym `.env` (patrz niżej). Krok robi `git fetch` + checkout commita,
+opcjonalny `docker login`, `compose pull`, `up -d` i `docker image prune -f`.
+
 
 ---
 
@@ -86,111 +149,31 @@ TARGET2_URL=https://rtgs.kolega.com/target2
 CHAPS_URL=https://rtgs.kolega.com/chaps
 FEDNOW_URL=https://rtgs.kolega.com/fednow
 
-# Agent / terminal
-AGENT_VITE_PROXY_TARGET=http://web:8000     # wewnątrz sieci compose VPS-A
-AGENT_ALLOWED_HOSTS=terminal.user.com,localhost
+# Obrazy GHCR
+IMAGE_TAG=latest                            # lub konkretna wersja, np. 1.2.3
+AGENT_PORT=5175
 ```
 
-### `docker-compose-vps-a.yml` (template)
+# Agent / terminal — w split obraz agenta to nginx (statyk + proxy /api → web).
+AGENT_KLIK_UPSTREAM=web:8000                # wewnątrz sieci compose VPS-A
 
-Standalone — odnosi się tylko do serwisów VPS-A, używa `core.settings.prod` i gunicorna.
+### `docker-compose-vps-a.yml`
 
-```yaml
-services:
-  db:
-    image: postgres:15
-    volumes:
-      - ./db_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks: [klik_net]
-
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks: [klik_net]
-
-  web:
-    build: ./backend
-    command: >
-      sh -c "python manage.py migrate &&
-             gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 4
-                     --access-logfile - --error-logfile -"
-    env_file: .env
-    environment:
-      DJANGO_SETTINGS_MODULE: core.settings.prod
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    ports:
-      - "8000:8000"  # za reverse proxy (nginx/Caddy) — nie wystawiać prosto na publik
-    restart: unless-stopped
-    networks: [klik_net]
-
-  worker:
-    build: ./backend
-    command: celery -A core worker --loglevel=info
-    env_file: .env
-    environment:
-      DJANGO_SETTINGS_MODULE: core.settings.prod
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    restart: unless-stopped
-    networks: [klik_net]
-
-  beat:
-    build: ./backend
-    command: celery -A core beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
-    env_file: .env
-    environment:
-      DJANGO_SETTINGS_MODULE: core.settings.prod
-    depends_on:
-      worker: { condition: service_started }
-    restart: unless-stopped
-    networks: [klik_net]
-
-  agent:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5175"
-    environment:
-      VITE_PROXY_TARGET: ${AGENT_VITE_PROXY_TARGET}
-      VITE_ALLOWED_HOSTS: ${AGENT_ALLOWED_HOSTS}
-    volumes:
-      - ./agent:/app
-    ports:
-      - "5175:5175"
-    depends_on:
-      - web
-    restart: unless-stopped
-    networks: [klik_net]
-
-networks:
-  klik_net:
-    driver: bridge
-```
+Gotowy plik jest w repo — odnosi się tylko do serwisów VPS-A (`db`, `redis`, `web`,
+`worker`, `beat`, `agent`), używa `core.settings.prod` + gunicorna i **ciągnie obrazy
+z GHCR** (`image:`, bez `build:`). Migracje robi `web` w `command` przy starcie.
 
 ### Start
 
 ```bash
-cp .env.example .env && nano .env       # ustaw sekcje VPS-A
-docker compose -f docker-compose-vps-a.yml up -d --build
-docker compose -f docker-compose-vps-a.yml logs -f
+cp .env.example .env && nano .env       # ustaw sekcje 0 + VPS-A
+# (jeśli pakiety GHCR prywatne) docker login ghcr.io -u <user>
+docker compose -f docker-compose-vps-a.yml pull
+docker compose -f docker-compose-vps-a.yml up -d
 ```
+
+> CD robi te same `pull` + `up -d` po SSH automatycznie po pushu na `main` / tagu.
+> Ręczny start jest potrzebny tylko za pierwszym razem (lub gdy deployujesz spoza CI).
 
 ---
 
@@ -223,74 +206,23 @@ RTGS_BLACKLIST=
 KLIK_CODE_TTL_SECONDS=120
 ```
 
-### `docker-compose-vps-b.yml` (template)
+> W split obraz `bank-mock-frontend` to statyk pod nginx — `BANK_MOCK_FRONTEND_ALLOWED_HOSTS`
+> jest wtedy nieużywane (dotyczy tylko Vite dev w single-host). Port hosta ustawiasz przez
+> `BANK_MOCK_FRONTEND_PORT` (default 5174).
 
-```yaml
-services:
-  rtgs-mock:
-    build: ./rtgs_mock
-    command: uvicorn main:app --host 0.0.0.0 --port 9000
-    environment:
-      RTGS_LATENCY_MIN_MS: ${RTGS_LATENCY_MIN_MS:-50}
-      RTGS_LATENCY_MAX_MS: ${RTGS_LATENCY_MAX_MS:-300}
-      RTGS_FAIL_RATE: ${RTGS_FAIL_RATE:-0.0}
-      RTGS_TIMEOUT_RATE: ${RTGS_TIMEOUT_RATE:-0.0}
-      RTGS_BLACKLIST: ${RTGS_BLACKLIST:-}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    ports:
-      - "9000:9000"  # za reverse proxy
-    restart: unless-stopped
-    networks: [bank_net]
+### `docker-compose-vps-b.yml`
 
-  bank-mock-backend:
-    build: ./bank_IO/backend
-    command: uvicorn main:app --host 0.0.0.0 --port 8100
-    environment:
-      BANK_NAME: ${BANK_MOCK_NAME:-BANK_MOCK}
-      BANK_ZONE: ${BANK_MOCK_ZONE:-PL}
-      KLIK_BASE_URL: ${BANK_MOCK_KLIK_BASE_URL}
-      KLIK_BANK_API_KEY: ${BANK_MOCK_KLIK_BANK_API_KEY}
-      KLIK_CODE_TTL_SECONDS: ${KLIK_CODE_TTL_SECONDS:-120}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8100/healthz"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    ports:
-      - "8100:8100"  # za reverse proxy
-    restart: unless-stopped
-    networks: [bank_net]
-
-  bank-mock-frontend:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5174"
-    environment:
-      VITE_ALLOWED_HOSTS: ${BANK_MOCK_FRONTEND_ALLOWED_HOSTS}
-    volumes:
-      - ./bank_IO/frontend:/app
-    ports:
-      - "5174:5174"
-    depends_on:
-      - bank-mock-backend
-    restart: unless-stopped
-    networks: [bank_net]
-
-networks:
-  bank_net:
-    driver: bridge
-```
+Gotowy plik jest w repo — odnosi się tylko do serwisów VPS-B (`rtgs-mock`,
+`bank-mock-backend`, `bank-mock-frontend`) i **ciągnie obrazy z GHCR** (`image:`, bez
+`build:`). Mock-y są stateless in-memory, więc VPS-B nie potrzebuje DB ani Redisa.
 
 ### Start
 
 ```bash
-cp .env.example .env && nano .env       # ustaw sekcje VPS-B
-docker compose -f docker-compose-vps-b.yml up -d --build
-docker compose -f docker-compose-vps-b.yml logs -f
+cp .env.example .env && nano .env       # ustaw sekcje 0 + VPS-B
+# (jeśli pakiety GHCR prywatne) docker login ghcr.io -u <user>
+docker compose -f docker-compose-vps-b.yml pull
+docker compose -f docker-compose-vps-b.yml up -d
 ```
 
 ---
@@ -351,25 +283,29 @@ Analogicznie na VPS-B dla `bank.kolega.com` (→ `:5174`), `bank-api.kolega.com`
 
 ## Checklist deployu
 
+### CI/CD (jednorazowo)
+- [ ] Sekrety `VPS_A_*` i `VPS_B_*` dodane (Environments `vps-a` / `vps-b`)
+- [ ] Pakiety GHCR publiczne **lub** `GHCR_USER` + `GHCR_TOKEN` ustawione
+- [ ] Repo sklonowane na obu VPS-ach w `VPS_*_PATH`, z wypełnionym `.env`
+
 ### VPS-A
-- [ ] `cp .env.example .env` i wypełnij sekcje 1–6
+- [ ] `cp .env.example .env` i wypełnij sekcje 0–6
+- [ ] `IMAGE_TAG` ustawiony (`latest` lub konkretna wersja)
 - [ ] `SECRET_KEY` świeży, ≥50 znaków
 - [ ] `POSTGRES_PASSWORD` ≠ `change-me`
 - [ ] `ALLOWED_HOSTS` zawiera publiczną domenę KLIK
 - [ ] `CORS_ALLOWED_ORIGINS` zawiera publiczną domenę terminala
 - [ ] RTGS URL-e wskazują na publiczne `rtgs.kolega.com`
-- [ ] `AGENT_ALLOWED_HOSTS` zawiera publiczną domenę terminala
-- [ ] `docker compose -f docker-compose-vps-a.yml up -d --build`
-- [ ] `docker compose -f docker-compose-vps-a.yml exec web python manage.py migrate` (jeśli compose nie robi w command)
-- [ ] Stwórz superusera: `... exec web python manage.py createsuperuser`
+- [ ] `docker compose -f docker-compose-vps-a.yml pull && up -d` (migracje robi `web` w command)
+- [ ] Stwórz superusera: `docker compose -f docker-compose-vps-a.yml exec web python manage.py createsuperuser`
 - [ ] Reverse proxy + TLS skonfigurowane
 
 ### VPS-B
-- [ ] `cp .env.example .env` i wypełnij sekcje 7–9
+- [ ] `cp .env.example .env` i wypełnij sekcje 0 + 7–9
 - [ ] `BANK_MOCK_KLIK_BASE_URL` = publiczny KLIK
 - [ ] `BANK_MOCK_KLIK_BANK_API_KEY` = klucz wygenerowany na VPS-A
-- [ ] `BANK_MOCK_FRONTEND_ALLOWED_HOSTS` zawiera publiczną domenę UI banku
-- [ ] `docker compose -f docker-compose-vps-b.yml up -d --build`
+- [ ] `IMAGE_TAG` zgodny z VPS-A
+- [ ] `docker compose -f docker-compose-vps-b.yml pull && up -d`
 - [ ] Reverse proxy + TLS skonfigurowane
 
 ### Cross-VPS
@@ -390,6 +326,9 @@ Analogicznie na VPS-B dla `bank.kolega.com` (→ `:5174`), `bank-api.kolega.com`
 | `401 INVALID_API_KEY` w logach mock-banku | `BANK_MOCK_KLIK_BANK_API_KEY` rozjechał się z wartością w DB KLIK-a. Wygeneruj nowy w Admin, zaktualizuj `.env` VPS-B, restart `bank-mock-backend` |
 | Vite "Blocked request… not allowed host" | `AGENT_ALLOWED_HOSTS` / `BANK_MOCK_FRONTEND_ALLOWED_HOSTS` nie zawiera hostname-u z którego browser ładuje stronę. Dodaj i zrestartuj kontener |
 | Sesje rozliczeniowe nie ruszają | sprawdź `docker compose logs beat` — Celery Beat musi być healthy; ewentualnie `SESSION_INTERVAL_MINUTES_PL=2` dla demo, żeby cykl odpalał się co 2 minuty |
+| `denied` / `manifest unknown` przy `compose pull` | pakiety GHCR prywatne i brak `docker login ghcr.io` (ustaw `GHCR_USER`/`GHCR_TOKEN` albo zrób pakiety publiczne), albo zły `IMAGE_TAG` — sprawdź czy build dla tego tagu przeszedł |
+| Job `deploy-vps-*` wisi / `ssh: handshake failed` | zły `VPS_*_HOST`/`PORT`, klucz `VPS_*_SSH_KEY` nie pasuje do `authorized_keys`, albo firewall blokuje SSH z runnera GitHuba |
+| `compose pull` na VPS ciągnie stary obraz | tag `latest` nieprzemigrowany — wymuś `docker compose pull` ręcznie; dla powtarzalności deployuj tagiem `v*` zamiast `latest` |
 
 ---
 

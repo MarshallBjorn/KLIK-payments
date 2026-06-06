@@ -1,0 +1,103 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  VPS-A — KLIK + Terminal (pull-based, obrazy z GHCR)              ║
+# ║                                                                    ║
+# ║  Serwisy: db, redis, web, worker, beat, agent.                     ║
+# ║  Bez `build:` — VPS tylko ściąga gotowe obrazy (oszczędność RAM).  ║
+# ║                                                                    ║
+# ║  Wymaga .env (patrz docs/deployment.md, sekcje VPS-A) oraz, jeśli  ║
+# ║  pakiety GHCR są prywatne: `docker login ghcr.io`.                 ║
+# ║                                                                    ║
+# ║  Override obrazów przez .env:                                      ║
+# ║    REGISTRY=ghcr.io                                                ║
+# ║    IMAGE_OWNER=marshallbjorn/klik-payments                         ║
+# ║    IMAGE_TAG=latest        # lub konkretna wersja, np. 1.2.3       ║
+# ╚══════════════════════════════════════════════════════════════════╝
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ./db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [klik_net]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks: [klik_net]
+
+  web:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/backend:${IMAGE_TAG:-latest}
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 4
+                     --access-logfile - --error-logfile -"
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "8000:8000"  # za reverse proxy (nginx/Caddy) — nie wystawiać prosto na publik
+    restart: unless-stopped
+    networks: [klik_net]
+
+  worker:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/backend:${IMAGE_TAG:-latest}
+    command: celery -A core worker --loglevel=info
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      web: { condition: service_started }
+    restart: unless-stopped
+    networks: [klik_net]
+
+  beat:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/backend:${IMAGE_TAG:-latest}
+    command: celery -A core beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings.prod
+    depends_on:
+      worker: { condition: service_started }
+    restart: unless-stopped
+    networks: [klik_net]
+
+  agent:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/agent:${IMAGE_TAG:-latest}
+    environment:
+      # nginx w obrazie agenta proxuje /api → KLIK. W sieci compose to web:8000.
+      KLIK_UPSTREAM: ${AGENT_KLIK_UPSTREAM:-web:8000}
+    depends_on:
+      - web
+    ports:
+      - "${AGENT_PORT:-5175}:80"  # za reverse proxy + TLS
+    restart: unless-stopped
+    networks: [klik_net]
+
+networks:
+  klik_net:
+    driver: bridge
