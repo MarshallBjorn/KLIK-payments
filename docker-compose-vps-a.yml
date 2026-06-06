@@ -57,10 +57,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    ports:
-      - "8000:8000"  # za reverse proxy (nginx/Caddy) — nie wystawiać prosto na publik
     restart: unless-stopped
-    networks: [klik_net]
+    networks: [klik_net, proxy]
 
   worker:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/backend:${IMAGE_TAG:-latest}
@@ -93,11 +91,11 @@ services:
       KLIK_UPSTREAM: ${AGENT_KLIK_UPSTREAM:-web:8000}
     depends_on:
       - web
-    ports:
-      - "${AGENT_PORT:-5175}:80"  # za reverse proxy + TLS
     restart: unless-stopped
-    networks: [klik_net]
+    networks: [klik_net, proxy]
 
 networks:
   klik_net:
     driver: bridge
+  proxy:
+    external: true
