@@ -1,0 +1,23 @@
+# Terminal (agent) — statyk SPA + reverse proxy /api → KLIK (Django).
+# ${KLIK_UPSTREAM} podstawiany przez entrypoint nginx (envsubst). Pozostałe
+# zmienne nginx ($host, $uri itd.) NIE są w env, więc envsubst ich nie rusza.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # API KLIK-a — agent woła względny /api/v1, nginx forwarduje do web:8000.
+    location /api/ {
+        proxy_pass http://${KLIK_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA fallback (vue-router createWebHistory).
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

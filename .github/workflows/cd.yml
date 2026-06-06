@@ -1,0 +1,140 @@
+name: CD — build & deploy
+
+# Podwójne CD:
+#  1) build → buduje 5 obrazów i pushuje na GHCR (ciężka robota poza VPS-ami)
+#  2) deploy-vps-a / deploy-vps-b → SSH na każdy VPS, `compose pull && up -d`
+#     (VPS tylko ściąga gotowe obrazy — nie buduje, oszczędza RAM)
+#
+# Trigger:
+#  - push na main          → tagi `latest` + `sha-xxxxxxx` + `main`
+#  - tag `v*`              → tagi semver (np. `1.2.3`, `1.2`)
+#  - workflow_dispatch     → ręcznie (deploy tylko gdy ref = main/tag)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    name: Build & push — ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            context: ./backend
+          - component: rtgs-mock
+            context: ./rtgs_mock
+          - component: bank-mock-backend
+            context: ./bank_IO/backend
+          - component: agent
+            context: ./agent
+          - component: bank-mock-frontend
+            context: ./bank_IO/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # metadata-action lowercase'uje nazwę obrazu — repo MarshallBjorn/KLIK-payments
+          # → ghcr.io/marshallbjorn/klik-payments/<component>
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  deploy-vps-a:
+    name: Deploy VPS-A (KLIK)
+    needs: build
+    # Deploy tylko z main lub tagu — nie z ręcznego dispatcha na feature branchu.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: vps-a
+    env:
+      IMAGE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_A_HOST }}
+          username: ${{ secrets.VPS_A_USER }}
+          key: ${{ secrets.VPS_A_SSH_KEY }}
+          port: ${{ secrets.VPS_A_PORT }}
+          envs: IMAGE_TAG
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.VPS_A_PATH }}"
+            git fetch --all --prune
+            git checkout "${{ github.sha }}" 2>/dev/null || git pull --ff-only
+            # Login do GHCR — pomiń jeśli pakiety publiczne (puste sekrety).
+            if [ -n "${{ secrets.GHCR_TOKEN }}" ]; then
+              echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+            fi
+            export IMAGE_TAG
+            docker compose -f docker-compose-vps-a.yml pull
+            docker compose -f docker-compose-vps-a.yml up -d --remove-orphans
+            docker image prune -f
+
+  deploy-vps-b:
+    name: Deploy VPS-B (mock bank + RTGS)
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: vps-b
+    env:
+      IMAGE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_B_HOST }}
+          username: ${{ secrets.VPS_B_USER }}
+          key: ${{ secrets.VPS_B_SSH_KEY }}
+          port: ${{ secrets.VPS_B_PORT }}
+          envs: IMAGE_TAG
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.VPS_B_PATH }}"
+            git fetch --all --prune
+            git checkout "${{ github.sha }}" 2>/dev/null || git pull --ff-only
+            if [ -n "${{ secrets.GHCR_TOKEN }}" ]; then
+              echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+            fi
+            export IMAGE_TAG
+            docker compose -f docker-compose-vps-b.yml pull
+            docker compose -f docker-compose-vps-b.yml up -d --remove-orphans
+            docker image prune -f

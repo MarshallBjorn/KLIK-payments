@@ -72,3 +72,6 @@ Thumbs.db
 node_modules/
 agent/dist/
 agent/.vite/
+
+bank_IO/frontend/dist/
+bank_IO/frontend/.vite/
