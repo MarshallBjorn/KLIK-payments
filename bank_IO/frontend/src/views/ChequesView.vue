@@ -19,8 +19,8 @@ const newCheque = ref(null)
 let pollTimer = null
 
 // ---------- API helpers ----------
-const fetchClients = () => api.get('/api/clients').then(r => { clients.value = r.data })
-const fetchCheques = () => api.get('/api/cheques').then(r => { cheques.value = r.data })
+const fetchClients = () => api.get('/api/clients').then(r => { clients.value = r })
+const fetchCheques = () => api.get('/api/cheques').then(r => { cheques.value = r })
 
 async function issueCheque() {
   if (!form.value.user_id || !form.value.amount) return
@@ -40,7 +40,7 @@ async function issueCheque() {
     await fetchCheques()
     await fetchClients()
   } catch (e) {
-    error.value = e.response?.data?.detail?.message || e.response?.data?.message || e.message || 'Błąd wystawiania czeku'
+    error.value = e.body?.detail?.message || e.message || 'Błąd wystawiania czeku'
   } finally {
     issuing.value = false
   }

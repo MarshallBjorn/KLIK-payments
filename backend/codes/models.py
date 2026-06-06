@@ -40,8 +40,8 @@ class Transaction(models.Model):
 
     # Kod (snapshot do audytu — nie służy do lookupów)
     code_snapshot = models.CharField(
-        max_length=6,
-        help_text='Kod KLIK użyty w transakcji. Audytowy — nie do lookupu.',
+        max_length=9,
+        help_text='Kod KLIK użyty w transakcji (6 cyfr C2B / 9 cyfr Cheque). Audytowy — nie do lookupu.',
     )
 
     user_id = models.CharField(
