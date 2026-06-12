@@ -167,7 +167,7 @@ class TestHTTPRTGSGateway:
         assert call.kwargs['json']['from'] == 'Bank A'
 
     def test_settle_failure_from_rtgs(self):
-        gw = TARGET2Gateway(base_url='http://mock:9000/target2', timeout_seconds=5)
+        gw = CHAPSGateway(base_url='http://mock:9000/chaps', timeout_seconds=5)
         transfer = _make_transfer()
 
         with (
@@ -254,3 +254,105 @@ class TestHTTPRTGSGateway:
             results = gw.settle(uuid4(), [transfer])
 
         assert results[0].status == TransferStatus.FAILED
+
+
+def _make_eu_transfer():
+    return TransferRequest(
+        transfer_id=uuid4(),
+        from_bank_code='TGT Bank PL',
+        to_bank_code='TGT Bank DE',
+        amount=Decimal('300.00'),
+        currency='EUR',
+        from_bic='BANKPLPW',
+        to_bic='BANKDEXX',
+        from_iban='PL61109010140000071219812874',
+        to_iban='DE89370400440532013000',
+    )
+
+
+class TestTARGET2Gateway:
+    def test_settle_success_sends_iso20022_xml(self):
+        gw = TARGET2Gateway(base_url='http://target:8001', timeout_seconds=5)
+        transfer = _make_eu_transfer()
+
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                'transfer_id': 'TGT-abc123',
+                'status': 'settled',
+                'created_at': '2026-06-05T10:00:00',
+            }
+            results = gw.settle(uuid4(), [transfer])
+
+        assert results[0].status == TransferStatus.SUCCESS
+        assert results[0].rtgs_reference == 'TGT-abc123'
+
+        call = mock_post.call_args
+        assert call.args[0].endswith('/transfers/xml')
+        assert call.kwargs['headers']['Content-Type'] == 'application/xml'
+        body = call.kwargs['data'].decode('utf-8')
+        assert f'<EndToEndId>{transfer.transfer_id.hex}</EndToEndId>' in body
+        assert '<BIC>BANKPLPW</BIC>' in body
+        assert '<BIC>BANKDEXX</BIC>' in body
+        assert '<InstdAmt Ccy="EUR">300.00</InstdAmt>' in body
+        assert 'PL61109010140000071219812874' in body
+
+    def test_missing_bic_iban_fails_locally_without_http(self):
+        gw = TARGET2Gateway(base_url='http://target:8001')
+        transfer = _make_transfer()  # brak BIC/IBAN
+
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
+            results = gw.settle(uuid4(), [transfer])
+
+        assert results[0].status == TransferStatus.FAILED
+        assert 'from_bic' in results[0].failure_reason
+        mock_post.assert_not_called()
+
+    def test_insufficient_funds_is_failure(self):
+        gw = TARGET2Gateway(base_url='http://target:8001')
+        transfer = _make_eu_transfer()
+
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
+            mock_post.return_value.status_code = 400
+            mock_post.return_value.text = '{"detail": "Insufficient funds for BANKPLPW"}'
+            mock_post.return_value.json.return_value = {'detail': 'Insufficient funds for BANKPLPW'}
+            results = gw.settle(uuid4(), [transfer])
+
+        assert results[0].status == TransferStatus.FAILED
+        assert 'Insufficient funds' in results[0].failure_reason
+
+    def test_healthcheck_uses_banks_endpoint(self):
+        gw = TARGET2Gateway(base_url='http://target:8001')
+        with patch('ledger.rtgs.gateways.requests.get') as mock_get:
+            mock_get.return_value.status_code = 200
+            assert gw.healthcheck() is True
+            assert mock_get.call_args[0][0].endswith('/banks')
+
+    def test_mtls_passes_cert_and_verify(self):
+        gw = TARGET2Gateway(
+            base_url='https://target:8001',
+            client_cert='/certs/banka.pem',
+            client_key='/certs/banka.key',
+            ca_cert='/certs/ca.pem',
+        )
+        transfer = _make_eu_transfer()
+        with (
+            patch.object(gw, 'healthcheck', return_value=True),
+            patch('ledger.rtgs.gateways.requests.post') as mock_post,
+        ):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {'transfer_id': 'X', 'status': 'settled'}
+            gw.settle(uuid4(), [transfer])
+
+        call = mock_post.call_args
+        assert call.kwargs['cert'] == ('/certs/banka.pem', '/certs/banka.key')
+        assert call.kwargs['verify'] == '/certs/ca.pem'
