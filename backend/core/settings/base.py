@@ -48,6 +48,7 @@ LOCAL_APPS = [
     'codes',
     'ledger',
     'cheques',
+    'recurring',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -176,6 +177,24 @@ SESSION_INTERVAL_MINUTES_US = env.int('SESSION_INTERVAL_MINUTES_US', default=144
 # Timeout HTTP dispatcher → RTGS w sekundach
 RTGS_TIMEOUT_SECONDS = env.int('RTGS_TIMEOUT_SECONDS', default=30)
 
+# ------------------------------------------------------------
+# Recurring (zlecenia stałe) — docs/reccuring/integration/INFO.md
+# ------------------------------------------------------------
+# Godzina (UTC) o której odpalają się daily executions. Reszta cykli też
+# startuje o tej godzinie.
+RECURRING_EXECUTION_HOUR_UTC = env.int('RECURRING_EXECUTION_HOUR_UTC', default=8)
+
+# Interwał z jakim Beat sprawdza next_run_at <= now. Rzeczywista godzina
+# execution może się różnić od RECURRING_EXECUTION_HOUR_UTC o kilka minut
+# (granularność dispatch) — SLA "tego dnia", nie "tej minuty".
+RECURRING_DISPATCH_INTERVAL_SECONDS = env.int('RECURRING_DISPATCH_INTERVAL_SECONDS', default=300)
+
+# Po N FAILED executions z rzędu (bez SUCCESS pomiędzy) mandate przechodzi
+# ACTIVE → PAUSED + webhook /auto-paused.
+RECURRING_AUTO_PAUSE_FAILURE_THRESHOLD = env.int(
+    'RECURRING_AUTO_PAUSE_FAILURE_THRESHOLD', default=3
+)
+
 # URLe RTGS mocków (w docker-compose: rtgs-mock:9000)
 SORBNET3_URL = env('SORBNET3_URL', default='http://rtgs-mock:9000/sorbnet3')
 TARGET2_URL = env('TARGET2_URL', default='http://rtgs-mock:9000/target2')
@@ -189,6 +208,7 @@ CELERY_BEAT_SCHEDULE = build_beat_schedule(
     interval_eu=SESSION_INTERVAL_MINUTES_EU,
     interval_uk=SESSION_INTERVAL_MINUTES_UK,
     interval_us=SESSION_INTERVAL_MINUTES_US,
+    recurring_dispatch_seconds=RECURRING_DISPATCH_INTERVAL_SECONDS,
 )
 
 KLIK_SESSION_INTERVALS = {

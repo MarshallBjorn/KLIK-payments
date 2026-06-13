@@ -1,5 +1,5 @@
 """
-Mock Banku — symulator banku nadawcy w ekosystemie KLIK (C2B + P2P + Cheques).
+Mock Banku — symulator banku nadawcy w ekosystemie KLIK (C2B + P2P + Cheques + Recurring).
 
 Domyka happy-path end-to-end bez ręcznego curl-a:
 
@@ -17,6 +17,15 @@ Cheques (czeki):
   operator wystawia czek dla klienta → mock → KLIK POST /cheques/issue (hold środków)
   agent/sklep realizuje → KLIK POST /cheques/redeem → KLIK → mock POST /webhook/cheques/redeemed
   operator anuluje czek → mock → KLIK POST /cheques/cancel → KLIK → mock POST /webhook/cheques/released
+
+Recurring (zlecenia stałe):
+  operator tworzy zlecenie (PIN = mandate signing) → mock → KLIK POST /recurring/create
+  KLIK cron (co RECURRING_DISPATCH_INTERVAL_SECONDS) → mock POST /webhook/recurring/execute
+    → mock sprawdza lokalny mandate + saldo, debetuje, odpowiada EXECUTED/REJECTED
+  3 faile z rzędu → KLIK → mock POST /webhook/recurring/auto-paused
+  cancel / koniec end_date → KLIK → mock POST /webhook/recurring/cancelled
+  edge case: "Odwołaj lokalnie" — mandate znika tylko w banku; następny /execute
+    zwraca MANDATE_REVOKED_LOCALLY i KLIK sam anuluje mandate (webhook /cancelled)
 
 Uwagi implementacyjne:
 - Webhook od KLIK (backend/codes/tasks.py) NIE zawiera user_id ani kodu — korelujemy
@@ -89,6 +98,12 @@ pending_authorizations: dict[str, dict] = {}
 _code_queue: list[dict] = []
 registered_aliases: dict[str, dict] = {}
 issued_cheques: dict[str, dict] = {}
+# Lokalna kopia mandate-ów (odpowiednik "Mandate po stronie banku" z INFO.md).
+# KLIK ufa że bank ma to u siebie — my trzymamy in-memory.
+local_mandates: dict[str, dict] = {}
+# Idempotency dla /webhook/recurring/execute: execution_id → odpowiedź.
+# KLIK może powtórzyć webhook z tym samym execution_id po network timeoucie.
+executed_runs: dict[str, dict] = {}
 history: list[dict] = []
 
 _lock = threading.Lock()
@@ -162,6 +177,29 @@ def _klik_post(path: str, body: dict, idempotency_key: Optional[str] = None) -> 
     url = f"{KLIK_BASE_URL}{path}"
     try:
         resp = httpx.post(url, json=body, headers=_klik_headers(idempotency_key), timeout=KLIK_HTTP_TIMEOUT)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = {"message": resp.text}
+            raise HTTPException(status_code=resp.status_code, detail=detail)
+        return resp.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail={"code": "KLIK_UNREACHABLE", "message": str(e)})
+
+
+def _klik_get(path: str, params: Optional[dict] = None) -> dict:
+    if not _klik_bank_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "API_KEY_NOT_CONFIGURED", "message": "Klucz KLIK API nie jest skonfigurowany."},
+        )
+    url = f"{KLIK_BASE_URL}{path}"
+    try:
+        resp = httpx.get(url, params=params, headers={"X-KLIK-Bank-Api-Key": _klik_bank_api_key},
+                         timeout=KLIK_HTTP_TIMEOUT)
         if resp.status_code >= 400:
             try:
                 detail = resp.json()
@@ -272,6 +310,45 @@ class IssueChequeIn(BaseModel):
     ttl_seconds: int = 86400
 
 
+# --- Recurring ---
+class RecurringExecuteWebhookIn(BaseModel):
+    recurring_transfer_id: str
+    execution_id: str
+    payer_user_id: Optional[str] = None
+    amount: str
+    currency: str
+    scheduled_for: Optional[str] = None
+    mandate_signed_at: Optional[str] = None
+    recipient: dict = {}
+    model_config = {"extra": "allow"}
+
+
+class RecurringAutoPausedWebhookIn(BaseModel):
+    recurring_transfer_id: str
+    payer_user_id: Optional[str] = None
+    paused_at: Optional[str] = None
+    failed_runs_count: int = 0
+    last_failure_reason: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
+class RecurringCancelledWebhookIn(BaseModel):
+    recurring_transfer_id: str
+    payer_user_id: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    reason: str = "OTHER"
+    model_config = {"extra": "allow"}
+
+
+class CreateRecurringIn(BaseModel):
+    recipient_phone: str
+    amount: float
+    cycle: str = "MONTHLY"
+    start_date: str
+    end_date: Optional[str] = None
+    pin: str
+
+
 # --------------------------------------------------------------------------
 # Webhooki od KLIK — C2B
 # --------------------------------------------------------------------------
@@ -356,6 +433,126 @@ async def webhook_cheque_released(payload: Annotated[ChequeReleasedWebhookIn, Bo
 
 
 # --------------------------------------------------------------------------
+# Webhooki od KLIK — Recurring
+# --------------------------------------------------------------------------
+@app.post("/webhook/recurring/execute")
+async def webhook_recurring_execute(payload: Annotated[RecurringExecuteWebhookIn, Body()]):
+    """KLIK trigger-uje run zlecenia stałego — bank wykonuje przelew RTP.
+
+    Mock: sprawdza lokalny mandate (czy klient nie odwołał) + saldo,
+    debetuje i odpowiada synchronicznie EXECUTED/REJECTED (kontrakt z INFO.md).
+    Idempotentny po execution_id — retry od KLIK dostaje tę samą odpowiedź.
+    """
+    with _lock:
+        # Duplikat (retry po network timeout) → ta sama odpowiedź co pierwotnie.
+        if payload.execution_id in executed_runs:
+            return executed_runs[payload.execution_id]
+
+        mandate = local_mandates.get(payload.recurring_transfer_id)
+        user_id = (mandate or {}).get("user_id") or payload.payer_user_id
+        client = clients.get(user_id) if user_id else None
+        try:
+            amount_f = float(payload.amount)
+        except (TypeError, ValueError):
+            amount_f = 0.0
+
+        recipient_phone = payload.recipient.get("phone") or (mandate or {}).get("recipient_phone")
+
+        # Klasyfikacja zgodnie z reject_reasons z INFO.md
+        if mandate and mandate.get("revoked_locally"):
+            response = {"status": "REJECTED", "reject_reason": "MANDATE_REVOKED_LOCALLY"}
+            result_msg = "Odrzucono — mandate odwołany lokalnie w banku"
+        elif client is None:
+            response = {"status": "REJECTED", "reject_reason": "ACCOUNT_CLOSED"}
+            result_msg = "Odrzucono — brak klienta (konto zamknięte)"
+        elif client["balance"] < amount_f:
+            response = {"status": "REJECTED", "reject_reason": "INSUFFICIENT_FUNDS"}
+            result_msg = "Odrzucono — brak środków"
+        else:
+            # "Przelew RTP" — w mocku tylko debet salda nadawcy.
+            client["balance"] = round(client["balance"] - amount_f, 2)
+            rtp_reference = f"RTP-{BANK_ZONE}-{uuid.uuid4().hex[:10].upper()}"
+            response = {
+                "status": "EXECUTED",
+                "rtp_reference": rtp_reference,
+                "executed_at": _now().isoformat(),
+            }
+            result_msg = f"Przelew RTP wykonany ({rtp_reference})"
+
+        executed_runs[payload.execution_id] = response
+        if mandate:
+            mandate["last_run_at"] = _now().isoformat()
+            mandate["last_run_status"] = response["status"]
+            mandate["last_run_detail"] = response.get("reject_reason") or response.get("rtp_reference")
+
+    event = "RECURRING_EXECUTED" if response["status"] == "EXECUTED" else "RECURRING_REJECTED"
+    _log_history(
+        event,
+        recurring_transfer_id=payload.recurring_transfer_id,
+        execution_id=payload.execution_id,
+        user_id=user_id,
+        user_name=_client_name(user_id),
+        recipient_phone=recipient_phone,
+        amount=payload.amount,
+        currency=payload.currency,
+        reject_reason=response.get("reject_reason"),
+        result=result_msg,
+    )
+    return response
+
+
+@app.post("/webhook/recurring/auto-paused")
+async def webhook_recurring_auto_paused(payload: Annotated[RecurringAutoPausedWebhookIn, Body()]):
+    """KLIK auto-pauzował mandate po serii failów — bank powiadamia klienta (push)."""
+    with _lock:
+        mandate = local_mandates.get(payload.recurring_transfer_id)
+        if mandate:
+            mandate["status"] = "PAUSED"
+            mandate["paused_at"] = payload.paused_at or _now().isoformat()
+        user_id = (mandate or {}).get("user_id") or payload.payer_user_id
+    _log_history(
+        "RECURRING_AUTO_PAUSED",
+        recurring_transfer_id=payload.recurring_transfer_id,
+        user_id=user_id,
+        user_name=_client_name(user_id),
+        failed_runs_count=payload.failed_runs_count,
+        last_failure_reason=payload.last_failure_reason,
+        result=(
+            f"Push do klienta: zlecenie wstrzymane po {payload.failed_runs_count} "
+            "nieudanych próbach — wznów w aplikacji"
+        ),
+    )
+    return {"received": True}
+
+
+@app.post("/webhook/recurring/cancelled")
+async def webhook_recurring_cancelled(payload: Annotated[RecurringCancelledWebhookIn, Body()]):
+    """KLIK zakończył mandate (auto-cancel / END_DATE_REACHED / potwierdzenie cancel)."""
+    with _lock:
+        mandate = local_mandates.get(payload.recurring_transfer_id)
+        if mandate:
+            # END_DATE_REACHED to naturalne zakończenie — rozróżniamy po reason.
+            mandate["status"] = "COMPLETED" if payload.reason == "END_DATE_REACHED" else "CANCELLED"
+            mandate["cancelled_at"] = payload.cancelled_at or _now().isoformat()
+            mandate["end_reason"] = payload.reason
+        user_id = (mandate or {}).get("user_id") or payload.payer_user_id
+    result_msg = (
+        "Zlecenie zakończyło się zgodnie z planem (end_date)"
+        if payload.reason == "END_DATE_REACHED"
+        else f"Mandate wycofany ({payload.reason})"
+    )
+    _log_history(
+        "RECURRING_CANCELLED",
+        recurring_transfer_id=payload.recurring_transfer_id,
+        user_id=user_id,
+        user_name=_client_name(user_id),
+        reason=payload.reason,
+        result=result_msg,
+    )
+    return {"received": True}
+
+
+# --------------------------------------------------------------------------
 # API dla UI — info i konfiguracja
 # --------------------------------------------------------------------------
 @app.get("/api/info")
@@ -371,6 +568,7 @@ async def api_info():
         "pending_count": len(pending_authorizations),
         "clients_count": len(clients),
         "cheques_count": len(issued_cheques),
+        "recurring_count": len(local_mandates),
     }
 
 
@@ -679,6 +877,180 @@ async def api_cancel_cheque(cheque_id: str):
                  user_id=cheque["user_id"], user_name=cheque["user_name"],
                  amount=cheque["amount"], result="Czek anulowany w KLIK")
     return result
+
+
+# --------------------------------------------------------------------------
+# API dla UI — Recurring (Zlecenia stałe)
+# --------------------------------------------------------------------------
+@app.post("/api/clients/{user_id}/recurring")
+async def api_create_recurring(user_id: str, payload: Annotated[CreateRecurringIn, Body()]):
+    """Klient zleca zlecenie stałe: PIN = mandate signing, potem rejestracja w KLIK.
+
+    Kolejność jak w R1: najpierw lokalny mandate (podpis PIN-em), potem
+    POST /recurring/create. Jeśli KLIK odrzuci (np. alias odbiorcy nie
+    istnieje) — lokalny mandate nie powstaje (rollback "u źródła").
+    """
+    if user_id not in clients:
+        raise HTTPException(status_code=404, detail={"code": "CLIENT_NOT_FOUND", "message": f"Brak klienta {user_id}"})
+    client_data = clients[user_id]
+    if payload.pin != client_data.get("pin", "1234"):
+        raise HTTPException(status_code=422, detail={"code": "WRONG_PIN", "message": "Błędny PIN."})
+    if payload.amount <= 0:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_AMOUNT", "message": "Kwota musi być dodatnia."})
+
+    currency = ZONE_CURRENCY.get(BANK_ZONE, "PLN")
+    mandate_signed_at = _now().isoformat()
+    body = {
+        "payer_user_id": user_id,
+        "recipient_phone": payload.recipient_phone,
+        "amount": f"{payload.amount:.2f}",
+        "currency": currency,
+        "zone": BANK_ZONE,
+        "cycle": payload.cycle,
+        "start_date": payload.start_date,
+        "end_date": payload.end_date,
+        "mandate_signed_at": mandate_signed_at,
+    }
+    result = _klik_post("/recurring/create", body)
+
+    rid = result["recurring_transfer_id"]
+    with _lock:
+        local_mandates[rid] = {
+            "recurring_transfer_id": rid,
+            "user_id": user_id,
+            "user_name": client_data["name"],
+            "recipient_phone": payload.recipient_phone,
+            "amount": payload.amount,
+            "currency": currency,
+            "cycle": payload.cycle,
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
+            "status": result.get("status", "ACTIVE"),
+            "next_run_at": result.get("next_run_at"),
+            "mandate_signed_at": mandate_signed_at,
+            "revoked_locally": False,
+            "created_at": result.get("created_at") or _now().isoformat(),
+            "paused_at": None,
+            "cancelled_at": None,
+            "end_reason": None,
+            "last_run_at": None,
+            "last_run_status": None,
+            "last_run_detail": None,
+        }
+    _log_history(
+        "RECURRING_CREATED",
+        recurring_transfer_id=rid,
+        user_id=user_id,
+        user_name=client_data["name"],
+        recipient_phone=payload.recipient_phone,
+        amount=f"{payload.amount:.2f}",
+        currency=currency,
+        cycle=payload.cycle,
+        result=f"Mandate podpisany PIN-em, pierwszy przelew: {result.get('next_run_at')}",
+    )
+    return result
+
+
+@app.get("/api/recurring")
+async def api_list_recurring():
+    with _lock:
+        items = sorted(local_mandates.values(), key=lambda m: m["created_at"], reverse=True)
+        return items
+
+
+@app.get("/api/recurring/{recurring_transfer_id}")
+async def api_recurring_detail(recurring_transfer_id: str):
+    """Szczegóły z KLIK (świeży status + executions_summary) + sync lokalnej kopii."""
+    result = _klik_get(f"/recurring/{recurring_transfer_id}")
+    with _lock:
+        mandate = local_mandates.get(recurring_transfer_id)
+        if mandate:
+            mandate["status"] = result.get("status", mandate["status"])
+            mandate["next_run_at"] = result.get("next_run_at")
+            result["user_id"] = mandate["user_id"]
+            result["user_name"] = mandate["user_name"]
+            result["revoked_locally"] = mandate.get("revoked_locally", False)
+    return result
+
+
+@app.get("/api/recurring/{recurring_transfer_id}/executions")
+async def api_recurring_executions(recurring_transfer_id: str, limit: int = 20):
+    """Historia runów — proxy do KLIK GET /recurring/{id}/executions."""
+    return _klik_get(f"/recurring/{recurring_transfer_id}/executions", params={"limit": limit})
+
+
+def _recurring_lifecycle(recurring_transfer_id: str, action: str) -> dict:
+    """Wspólna obsługa pause/resume/cancel — KLIK + sync lokalnej kopii."""
+    with _lock:
+        mandate = local_mandates.get(recurring_transfer_id)
+    if not mandate:
+        raise HTTPException(status_code=404, detail={"code": "RECURRING_NOT_FOUND",
+                                                     "message": "Zlecenie nie istnieje lokalnie."})
+    result = _klik_post(f"/recurring/{recurring_transfer_id}/{action}", {})
+    with _lock:
+        mandate["status"] = result.get("status", mandate["status"])
+        if action == "pause":
+            mandate["paused_at"] = result.get("paused_at")
+        elif action == "resume":
+            mandate["next_run_at"] = result.get("next_run_at")
+            mandate["paused_at"] = None
+        elif action == "cancel":
+            mandate["cancelled_at"] = result.get("cancelled_at")
+            mandate["end_reason"] = "USER_REQUEST"
+    event = {"pause": "RECURRING_PAUSED", "resume": "RECURRING_RESUMED", "cancel": "RECURRING_USER_CANCELLED"}[action]
+    result_msg = {
+        "pause": "Zlecenie wstrzymane na życzenie klienta",
+        "resume": f"Zlecenie wznowione, najbliższy przelew: {result.get('next_run_at')}",
+        "cancel": "Zlecenie anulowane na stałe",
+    }[action]
+    _log_history(event, recurring_transfer_id=recurring_transfer_id,
+                 user_id=mandate["user_id"], user_name=mandate["user_name"],
+                 amount=f"{mandate['amount']:.2f}", currency=mandate["currency"], result=result_msg)
+    return result
+
+
+@app.post("/api/recurring/{recurring_transfer_id}/pause")
+async def api_recurring_pause(recurring_transfer_id: str):
+    return _recurring_lifecycle(recurring_transfer_id, "pause")
+
+
+@app.post("/api/recurring/{recurring_transfer_id}/resume")
+async def api_recurring_resume(recurring_transfer_id: str):
+    """Resume czyści też flagę revoked_locally — klient 'podpisuje' na nowo."""
+    result = _recurring_lifecycle(recurring_transfer_id, "resume")
+    with _lock:
+        mandate = local_mandates.get(recurring_transfer_id)
+        if mandate:
+            mandate["revoked_locally"] = False
+    return result
+
+
+@app.post("/api/recurring/{recurring_transfer_id}/cancel")
+async def api_recurring_cancel(recurring_transfer_id: str):
+    return _recurring_lifecycle(recurring_transfer_id, "cancel")
+
+
+@app.post("/api/recurring/{recurring_transfer_id}/revoke-locally")
+async def api_recurring_revoke_locally(recurring_transfer_id: str):
+    """Edge case demo: klient odwołał mandate W BANKU, bank NIE poinformował KLIK.
+
+    KLIK dalej trigger-uje runy; następny /webhook/recurring/execute dostanie
+    MANDATE_REVOKED_LOCALLY → KLIK sam anuluje mandate i odeśle /cancelled.
+    """
+    with _lock:
+        mandate = local_mandates.get(recurring_transfer_id)
+        if not mandate:
+            raise HTTPException(status_code=404, detail={"code": "RECURRING_NOT_FOUND",
+                                                         "message": "Zlecenie nie istnieje lokalnie."})
+        mandate["revoked_locally"] = True
+    _log_history(
+        "RECURRING_REVOKED_LOCALLY",
+        recurring_transfer_id=recurring_transfer_id,
+        user_id=mandate["user_id"],
+        user_name=mandate["user_name"],
+        result="Mandate odwołany lokalnie — KLIK dowie się przy następnym execute",
+    )
+    return {"revoked_locally": True, "recurring_transfer_id": recurring_transfer_id}
 
 
 @app.get("/api/history")

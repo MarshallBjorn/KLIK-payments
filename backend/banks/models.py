@@ -154,7 +154,7 @@ class Bank(TimestampedModel):
         ),
     )
 
-    cheques_webhook_url = models.URLField(
+    cheques_webhook_url = models.CharField(
         max_length=500,
         blank=True,
         default='',
@@ -162,6 +162,26 @@ class Bank(TimestampedModel):
             'URL bazowy dla webhooków modułu Cheques. '
             'KLIK uderza w {url}/redeemed i {url}/released. '
             'Jeśli puste — fallback do webhook_url + "/cheques".'
+        ),
+    )
+
+    recurring_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            'Czy bank uczestniczy w module Recurring (zlecenia stałe). '
+            'Wymaga też p2p_enabled=True (lookup aliasu jest mechanizmem P2P). '
+            'Bank musi wystawiać endpointy /execute, /auto-paused, /cancelled.'
+        ),
+    )
+
+    recurring_webhook_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text=(
+            'URL bazowy dla webhooków modułu Recurring. '
+            'KLIK uderza w {url}/execute, {url}/auto-paused i {url}/cancelled. '
+            'Jeśli puste — fallback do webhook_url + "/recurring".'
         ),
     )
 

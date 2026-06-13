@@ -50,6 +50,15 @@ class BankAdminForm(forms.ModelForm):
         ),
         widget=forms.TextInput(attrs={'size': 80}),
     )
+    recurring_webhook_url = forms.CharField(
+        required=False,
+        label='Recurring Webhook URL',
+        help_text=(
+            'URL bazowy dla webhooków Recurring (/execute, /auto-paused, /cancelled). '
+            'Np. http://bank-mock-backend:8100/webhook/recurring. Puste = fallback do webhook_url + "/recurring".'
+        ),
+        widget=forms.TextInput(attrs={'size': 80}),
+    )
 
     class Meta:
         model = Bank
@@ -65,6 +74,8 @@ class BankAdminForm(forms.ModelForm):
             'p2p_enabled',
             'p2p_lookup_fee',
             'cheques_enabled',
+            'recurring_enabled',
+            'recurring_webhook_url',
         )
 
     def clean_webhook_url(self):
@@ -72,6 +83,9 @@ class BankAdminForm(forms.ModelForm):
 
     def clean_cheques_webhook_url(self):
         return self.cleaned_data.get('cheques_webhook_url', '').strip()
+
+    def clean_recurring_webhook_url(self):
+        return self.cleaned_data.get('recurring_webhook_url', '').strip()
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +135,8 @@ class BankAdmin(admin.ModelAdmin):
                     'p2p_lookup_fee',
                     'cheques_enabled',
                     'cheques_webhook_url',
+                    'recurring_enabled',
+                    'recurring_webhook_url',
                 ),
             },
         ),
