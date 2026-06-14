@@ -156,6 +156,10 @@ def run_settlement_session(self, zone: str) -> dict:
             to_bank_code=t.to_bank.name,
             amount=t.amount,
             currency=t.currency,
+            from_bic=t.from_bank.bic,
+            to_bic=t.to_bank.bic,
+            from_iban=t.from_bank.settlement_iban,
+            to_iban=t.to_bank.settlement_iban,
         )
         for t in transfers
     ]

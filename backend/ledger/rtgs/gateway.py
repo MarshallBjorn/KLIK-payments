@@ -42,6 +42,10 @@ class TransferRequest:
     Frozen — nie zmieniamy po zbudowaniu, łatwiej śledzić co poszło do gateway.
     UUID pochodzi z `SettlementTransfer.id` — używamy go jako idempotency-key
     po stronie RTGS oraz korelacji wyniku.
+
+    Pola BIC/IBAN są opcjonalne — używa ich tylko TARGET2 (ISO 20022 wymaga
+    BIC agentów i IBAN-ów kont). Pozostałe systemy identyfikują bank po
+    `from_bank_code`/`to_bank_code` (nazwa) i ignorują te pola.
     """
 
     transfer_id: UUID
@@ -49,6 +53,10 @@ class TransferRequest:
     to_bank_code: str
     amount: Decimal
     currency: str
+    from_bic: str = ''
+    to_bic: str = ''
+    from_iban: str = ''
+    to_iban: str = ''
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ Kluczowe założenia:
 """
 
 import hashlib
+import re
 import secrets
 
 from django.core.exceptions import ValidationError
@@ -39,6 +40,12 @@ def hash_api_key(plaintext: str) -> str:
     - Nie chronimy hasła użytkownika, tylko losowy token
     """
     return hashlib.sha256(plaintext.encode('utf-8')).hexdigest()
+
+
+# BIC: 8 lub 11 znaków (6 liter + 2 alfanum + opcjonalnie 3 alfanum branch).
+BIC_REGEX = re.compile(r'^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$')
+# IBAN: 2 litery kraju + 2 cyfry + 11-30 alfanum (spójne z common.account).
+IBAN_REGEX = re.compile(r'^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$')
 
 
 def generate_api_key() -> tuple[str, str]:
@@ -96,6 +103,26 @@ class Bank(TimestampedModel):
         help_text=(
             'Czy bank może wywoływać API. False = onboarding niezakończony '
             'lub bank zablokowany ręcznie przez operatora.'
+        ),
+    )
+
+    bic = models.CharField(
+        max_length=11,
+        blank=True,
+        default='',
+        help_text=(
+            'Kod BIC/SWIFT banku. Wymagany dla strefy EU (TARGET identyfikuje '
+            'banki po BIC). Dla pozostałych stref opcjonalny.'
+        ),
+    )
+
+    settlement_iban = models.CharField(
+        max_length=34,
+        blank=True,
+        default='',
+        help_text=(
+            'IBAN konta rozliczeniowego banku w RTGS. Wymagany dla strefy EU '
+            '(TARGET wstawia go w DbtrAcct/CdtrAcct komunikatu ISO 20022).'
         ),
     )
 
@@ -243,6 +270,24 @@ class Bank(TimestampedModel):
                     )
                 }
             )
+
+        # Strefa EU rozlicza się przez TARGET (ISO 20022) — wymaga BIC + IBAN.
+        # Inne strefy (PL/UK/US) identyfikują banki inaczej, więc tu nie wymuszamy.
+        if self.zone == Zone.EU:
+            bic = (self.bic or '').strip().upper()
+            iban = (self.settlement_iban or '').replace(' ', '').upper()
+            if not bic:
+                raise ValidationError({'bic': 'Bank w strefie EU musi mieć BIC (TARGET).'})
+            if not BIC_REGEX.match(bic):
+                raise ValidationError({'bic': f'Niepoprawny format BIC: {self.bic}.'})
+            if not iban:
+                raise ValidationError(
+                    {'settlement_iban': 'Bank w strefie EU musi mieć settlement_iban (TARGET).'}
+                )
+            if not IBAN_REGEX.match(iban):
+                raise ValidationError(
+                    {'settlement_iban': f'Niepoprawny format IBAN: {self.settlement_iban}.'}
+                )
 
     def rotate_api_key(self) -> str:
         """Generuje nowy klucz API, zapisuje hash, zwraca plaintext.

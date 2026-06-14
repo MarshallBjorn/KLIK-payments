@@ -273,3 +273,7 @@ LOGGING = {
         },
     },
 }
+
+TARGET_CLIENT_CERT = env('TARGET_CLIENT_CERT', default='')
+TARGET_CLIENT_KEY = env('TARGET_CLIENT_KEY', default='')
+TARGET_CA_CERT = env('TARGET_CA_CERT', default='')

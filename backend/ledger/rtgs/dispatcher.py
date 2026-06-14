@@ -66,6 +66,9 @@ class RTGSDispatcher:
             Zone.EU: TARGET2Gateway(
                 base_url=settings.TARGET2_URL,
                 timeout_seconds=timeout,
+                client_cert=getattr(settings, 'TARGET_CLIENT_CERT', ''),
+                client_key=getattr(settings, 'TARGET_CLIENT_KEY', ''),
+                ca_cert=getattr(settings, 'TARGET_CA_CERT', ''),
             ),
             Zone.UK: CHAPSGateway(
                 base_url=settings.CHAPS_URL,
