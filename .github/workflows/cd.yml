@@ -87,6 +87,12 @@ jobs:
     env:
       IMAGE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
     steps:
+      - name: Setup WireGuard
+        run: |
+          sudo apt-get update && sudo apt-get install -y wireguard
+          echo "${{ secrets.WG_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -108,6 +114,9 @@ jobs:
             docker compose -f docker-compose-vps-a.yml pull
             docker compose -f docker-compose-vps-a.yml up -d --remove-orphans
             docker image prune -f
+      - name: Teardown WireGuard
+        if: always()
+        run: sudo wg-quick down wg0
 
   deploy-vps-b:
     name: Deploy VPS-B (mock bank + RTGS)
