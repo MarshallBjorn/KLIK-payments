@@ -256,7 +256,6 @@ class TestRunSettlementSessionFailures:
         unsettled_in_session = LedgerEntry.objects.filter(session=session, settled=False).count()
         assert unsettled_in_session > 0
 
-    @pytest.mark.skip(reason='Model SettlementTransfer nie posiada jeszcze pola failure_reason')
     def test_failed_transfer_records_failure_reason(
         self, bank_pl, bank_pl_2, agent, msc, merchant_off_us
     ):
