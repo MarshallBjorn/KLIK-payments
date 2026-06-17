@@ -280,4 +280,5 @@ TARGET_CA_CERT = env('TARGET_CA_CERT', default='')
 
 KLIK_OPERATOR_BANK_BY_ZONE = {
     'EU': 'KLIK Operator EU',
+    'UK': 'KLIK Operator UK',
 }

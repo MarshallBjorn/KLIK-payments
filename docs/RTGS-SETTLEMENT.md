@@ -108,7 +108,7 @@ mapuje strefę na `Bank.name` operatora KLIK:
 ```python
 KLIK_OPERATOR_BANK_BY_ZONE = {
     'EU': 'KLIK Operator EU',
-    # 'PL': 'KLIK Operator PL',  # dodawane wraz z onboardingiem KLIK w danym RTGS
+    'UK': 'KLIK Operator UK',
 }
 ```
 
@@ -129,9 +129,10 @@ przez RTGS niezależnie od powyższego.
 > strefy idzie `FAILED` (zasada „dowolny fail → sesja FAILED"). Dlatego strefę
 > włącza się dopiero po onboardingu KLIK w jej RTGS.
 
-**Status:** EU — inkaso aktywne i zweryfikowane end‑to‑end (saldo konta KLIK
-w TARGET rośnie po sesji `COMPLETED`). PL/UK/US — collect‑at‑source do czasu
-onboardingu KLIK w SORBNET3/CHAPS/FedNow.
+**Status inkasa składek per strefa:**
+- **EU (TARGET)** — aktywne, zweryfikowane end-to-end (saldo konta KLIK w TARGET rośnie po sesji `COMPLETED`).
+- **UK (CHAPS)** — aktywne, zweryfikowane end-to-end (sesja UK `COMPLETED`, transfer prowizji do `KLIK Operator UK`).
+- **PL (SORBNET3) / US (FedNow)** — collect-at-source do czasu onboardingu KLIK w tych RTGS.
 
 ---
 
@@ -198,8 +199,16 @@ Zasady odporności:
 - `SettlementTransfer.rtgs_reference` = referencja nadana przez RTGS (dowód
   rozliczenia, do raportów dla banków).
 
-Różnice formatów: TARGET używa ISO 20022 (XML pain.001 w żądaniu, pain.002 z
+Różnice formatów:
+**Specyfika TARGET2 (EU):** TARGET używa ISO 20022 (XML pain.001 w żądaniu, pain.002 z
 `TxSts=ACSC` w odpowiedzi). SORBNET3/CHAPS/FedNow w MVP rozmawiają JSON‑em.
+
+**Specyfika CHAPS (UK):** kontrakt jest **JSON** i pasuje 1:1 do domyślnego
+`CHAPSGateway` (brak XML jak w TARGET). Banki identyfikowane po **nazwie**
+(`participant_profiles.name`) — nazwy w KLIK muszą być 1:1 z rejestrem CHAPS.
+CHAPS egzekwuje **godziny pracy 06:00–18:00 (czas serwera/UTC)**: poza oknem
+każdy transfer wraca `FAILED` (`"CHAPS opens at 06:00"` / `"cutoff ... passed"`),
+co cała sesja traktuje jako fail. To zewnętrzna reguła RTGS, nie regresja KLIK.
 
 ---
 
@@ -211,3 +220,4 @@ Różnice formatów: TARGET używa ISO 20022 (XML pain.001 w żądaniu, pain.002
 - **Co realnie idzie przez RTGS?** `merchant_net` i `agent_fee` (from ≠ to).
 - **Jak często?** Per strefa, w cyklu Celery Beat; P2P fee naliczane nocą (23:55 UTC).
 - **Co przy awarii?** Nierozliczone entries wracają do następnej sesji (nic nie ginie).
+- - **Godziny rozliczeń?** SORBNET3/TARGET/FedNow — bez ograniczeń w mocku/symulacji; **CHAPS: 06:00–18:00 UTC** (poza oknem transfery FAIL).
