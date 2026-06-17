@@ -12,5 +12,5 @@ urlpatterns = [
     path('api/v1/', include('codes.urls')),
     path('api/v1/', include('merchants.urls')),
     path('api/v1/', include('cheques.urls')),
-    # path('api/v1/', include('api.urls')),  # TBD: gdy zaczniemy implementację API
+    path('api/v1/', include('recurring.urls')),
 ]

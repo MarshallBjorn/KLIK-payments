@@ -20,7 +20,17 @@ end-to-end bez ręcznego `curl`-a:
 Wszystkie operacje P2P inkrementują liczniki billingowe po stronie KLIK (lookup fee
 naliczany dziennie do ledgera).
 
-W MVP **C2B + P2P** od strony operatora banku. Stan **in-memory** — restart resetuje.
+**Recurring (zlecenia stałe)**
+- operator tworzy zlecenie dla klienta (PIN = podpisanie mandate) → mock woła KLIK `POST /recurring/create`
+- cron KLIK (co `RECURRING_DISPATCH_INTERVAL_SECONDS`, default 5 min) trigger-uje runy →
+  KLIK uderza w `POST /webhook/recurring/execute` → mock sprawdza lokalny mandate + saldo,
+  debetuje i odpowiada `EXECUTED` (z `rtp_reference`) lub `REJECTED` (np. `INSUFFICIENT_FUNDS`)
+- 3 odrzucenia z rzędu → KLIK auto-pauzuje mandate → `POST /webhook/recurring/auto-paused`
+- anulowanie / koniec `end_date` → `POST /webhook/recurring/cancelled`
+- edge case **„Odwołaj lokalnie”** — mandate znika tylko w banku; następny run zwraca
+  `MANDATE_REVOKED_LOCALLY` i KLIK sam anuluje mandate
+
+Stan **in-memory** — restart resetuje.
 
 ## Struktura
 
@@ -30,6 +40,7 @@ bank_mock/
 └── frontend/   Vue 3 + Vite + Tailwind (:5174) — wzorzec: agent/
 ```
 
+
 ## Endpointy backendu
 
 | Metoda | Ścieżka | Opis |
@@ -37,7 +48,6 @@ bank_mock/
 | POST | `/webhook/authorize` | webhook od KLIK; zapisuje pending, zwraca `{received, will_prompt_user}` natychmiast |
 | POST | `/webhook/ping` | proof-of-liveness (opcjonalny w specie) |
 | GET | `/api/info` | dane do dashboardu (nazwa banku, strefa, czy API key skonfigurowany, liczba pending) |
-| GET | `/api/clients` | lista klientów (`id`, `name`, `balance`, `phone`, `iban`, `alias_registered`) |
 | POST | `/api/clients/{user_id}/generate-code` | woła KLIK `/codes/generate`, zwraca kod + TTL |
 | GET | `/api/pending` | oczekujące autoryzacje (`seconds_left`, `client_balance`, `sufficient_balance`) |
 | POST | `/api/pending/{tx}/accept` | body `{pin}`; sprawdza PIN, sprawdza saldo (za mało → auto-reject `INSUFFICIENT_FUNDS`), inaczej KLIK `/payments/confirm` `decision=ACCEPTED` + debet salda |
@@ -46,8 +56,19 @@ bank_mock/
 | GET | `/api/aliases` | lokalny cache aliasów zarejestrowanych przez ten bank |
 | DELETE | `/api/aliases/{phone}` | woła KLIK `DELETE /aliases/{phone}`, usuwa z cache |
 | POST | `/api/lookup` | body `{phone}`; woła KLIK `GET /aliases/lookup/{phone}`. Zwraca `{found: true, bank_code, iban, zone}` lub `{found: false, phone}` (404 → friendly miss zamiast błędu) |
-| GET | `/api/history` | audit log (`CODE_GENERATED` / `WEBHOOK_RECEIVED` / `AUTHORIZED` / `REJECTED` / `EXPIRED` / `ALIAS_REGISTERED` / `ALIAS_DELETED` / `LOOKUP_HIT` / `LOOKUP_MISS`) |
+| POST | `/webhook/recurring/execute` | webhook od KLIK (run zlecenia); mock sprawdza mandate + saldo, debetuje, odpowiada `{status: EXECUTED, rtp_reference}` lub `{status: REJECTED, reject_reason}`; idempotentny po `execution_id` |
+| POST | `/webhook/recurring/auto-paused` | webhook od KLIK po 3 failach z rzędu; mock oznacza mandate PAUSED i loguje „push do klienta" |
+| POST | `/webhook/recurring/cancelled` | webhook od KLIK (auto-cancel / `END_DATE_REACHED` / potwierdzenie cancel); mock zamyka lokalny mandate |
+| POST | `/api/clients/{user_id}/recurring` | body `{recipient_phone, amount, cycle, start_date, end_date?, pin}`; PIN = podpisanie mandate, potem KLIK `POST /recurring/create` |
+| GET | `/api/recurring` | lokalna lista mandate-ów |
+| GET | `/api/recurring/{id}` | szczegóły z KLIK (świeży status + `executions_summary`) + sync lokalnej kopii |
+| GET | `/api/recurring/{id}/executions` | historia runów — proxy do KLIK |
+| POST | `/api/recurring/{id}/pause` / `/resume` / `/cancel` | cykl życia — proxy do KLIK + sync lokalny |
+| POST | `/api/recurring/{id}/revoke-locally` | edge case: odwołanie mandate TYLKO w banku (KLIK dowie się przy następnym execute) |
+| GET | `/api/history` | audit log (`CODE_GENERATED` / `WEBHOOK_RECEIVED` / `AUTHORIZED` / `REJECTED` / `EXPIRED` / `ALIAS_REGISTERED` / `ALIAS_DELETED` / `LOOKUP_HIT` / `LOOKUP_MISS` / `RECURRING_*`) |
 | GET | `/healthz` | liveness |
+
+(reszta README — Konfiguracja, Setup, Happy path C2B/P2P/Recurring, Edge case'y — bez zmian względem wersji w repo)
 
 ## Konfiguracja (env backendu)
 

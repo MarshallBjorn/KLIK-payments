@@ -16,3 +16,15 @@ export const registerAlias = (userId, phone) =>
 export const listAliases = () => api.get('/api/aliases')
 export const deleteAlias = (phone) => api.del(`/api/aliases/${encodeURIComponent(phone)}`)
 export const lookupAlias = (phone) => api.post('/api/lookup', { phone })
+
+// Recurring (Zlecenia stałe)
+export const createRecurring = (userId, payload) =>
+  api.post(`/api/clients/${encodeURIComponent(userId)}/recurring`, payload)
+export const listRecurring = () => api.get('/api/recurring')
+export const getRecurring = (id) => api.get(`/api/recurring/${id}`)
+export const listRecurringExecutions = (id, limit = 20) =>
+  api.get(`/api/recurring/${id}/executions?limit=${limit}`)
+export const pauseRecurring = (id) => api.post(`/api/recurring/${id}/pause`)
+export const resumeRecurring = (id) => api.post(`/api/recurring/${id}/resume`)
+export const cancelRecurring = (id) => api.post(`/api/recurring/${id}/cancel`)
+export const revokeRecurringLocally = (id) => api.post(`/api/recurring/${id}/revoke-locally`)

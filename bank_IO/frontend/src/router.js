@@ -8,6 +8,7 @@ const routes = [
   { path: '/pending', component: () => import('./views/PendingView.vue') },
   { path: '/p2p', component: () => import('./views/P2PView.vue') },
   { path: '/cheques', component: () => import('./views/ChequesView.vue') },
+  { path: '/recurring', component: () => import('./views/RecurringView.vue') },
   { path: '/history', component: () => import('./views/HistoryView.vue') },
 ]
 

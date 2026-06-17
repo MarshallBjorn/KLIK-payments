@@ -31,11 +31,13 @@ def build_beat_schedule(
     interval_eu: int,
     interval_uk: int,
     interval_us: int,
+    recurring_dispatch_seconds: int,
 ) -> dict:
     """Buduje słownik CELERY_BEAT_SCHEDULE.
 
     Args:
         interval_*: interwał w minutach per strefa (z `.env`).
+        recurring_dispatch_seconds: interwał dispatchu zlecenia stałe (z `.env`).
 
     Returns:
         Dict gotowy do podłożenia jako `CELERY_BEAT_SCHEDULE` w settings.
@@ -83,5 +85,15 @@ def build_beat_schedule(
             'task': 'ledger.accrue_p2p_lookup_fees',
             'schedule': crontab(hour=23, minute=55),
             'options': {'expires': 60 * 60},  # 1h — jeśli przegapimy okno, lepiej skip
+        },
+        # ----------------------------------------------------------------------
+        # Recurring dispatch — co RECURRING_DISPATCH_INTERVAL_SECONDS (default
+        # 5 min) sprawdza mandate-y z next_run_at <= now i kolejkuje runy.
+        # Idempotentny: pominięty tick nadrobi się w kolejnym (SLA "tego dnia").
+        # ----------------------------------------------------------------------
+        'recurring-dispatch': {
+            'task': 'recurring.dispatch_due_recurring_transfers',
+            'schedule': recurring_dispatch_seconds,
+            'options': {'expires': recurring_dispatch_seconds},
         },
     }

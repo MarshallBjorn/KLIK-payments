@@ -39,6 +39,13 @@ function logout() { clear(); router.push('/setup') }
           {{ info.cheques_count }}
         </span>
       </router-link>
+      <router-link to="/recurring" class="hover:underline" active-class="text-violet-400">
+        Zlecenia stałe
+        <span v-if="info?.recurring_count"
+              class="ml-1 inline-flex items-center justify-center text-xs bg-violet-500 text-white rounded-full px-1.5">
+          {{ info.recurring_count }}
+        </span>
+      </router-link>
       <router-link to="/history" class="hover:underline" active-class="text-emerald-400">Historia</router-link>
     </div>
     <div class="flex items-center gap-4 text-sm">
