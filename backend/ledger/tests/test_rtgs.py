@@ -280,11 +280,13 @@ class TestTARGET2Gateway:
             patch('ledger.rtgs.gateways.requests.post') as mock_post,
         ):
             mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {
-                'transfer_id': 'TGT-abc123',
-                'status': 'settled',
-                'created_at': '2026-06-05T10:00:00',
-            }
+            mock_post.return_value.text = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Document><CstmrPmtStsRpt><OrgnlPmtInfAndSts>'
+                '<OrgnlEndToEndId>TGT-abc123</OrgnlEndToEndId>'
+                '<TxSts>ACSC</TxSts>'
+                '</OrgnlPmtInfAndSts></CstmrPmtStsRpt></Document>'
+            )
             results = gw.settle(uuid4(), [transfer])
 
         assert results[0].status == TransferStatus.SUCCESS
@@ -350,7 +352,11 @@ class TestTARGET2Gateway:
             patch('ledger.rtgs.gateways.requests.post') as mock_post,
         ):
             mock_post.return_value.status_code = 200
-            mock_post.return_value.json.return_value = {'transfer_id': 'X', 'status': 'settled'}
+            mock_post.return_value.text = (
+                '<Document><CstmrPmtStsRpt><OrgnlPmtInfAndSts>'
+                '<OrgnlEndToEndId>X</OrgnlEndToEndId><TxSts>ACSC</TxSts>'
+                '</OrgnlPmtInfAndSts></CstmrPmtStsRpt></Document>'
+            )
             gw.settle(uuid4(), [transfer])
 
         call = mock_post.call_args

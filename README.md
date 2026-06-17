@@ -219,10 +219,11 @@ PR nie zostanie zmergowany jeśli CI jest czerwony.
 | Szkielet Django | ✅ kompletny |
 | Moduł C2B — backend | ✅ kompletny |
 | Moduł P2P — backend | ✅ kompletny |
-| Moduł Cheques — backend | 🟡 W trakcie implementacji |
-| Moduł Recurring — backend | 🟡 W trakcie implementacji |
+| Moduł Cheques — backend | ✅ kompletny  |
+| Moduł Recurring — backend | ✅ kompletny  |
 | Dispatcher RTGS | ✅ kompletny |
 | Mock RTGS | ✅ kompletny |
+| SORBNET, TARGET, CHAPS, FEDNOW | ❌ ✅ ✅ 🟡 |
 | Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
 | Agent rozliczeniowy (Vue, :5175, w Dockerze) | ✅ kompletny |
 | Mock banku — C2B (:8100 / :5174) | ✅ kompletny |

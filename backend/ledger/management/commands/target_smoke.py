@@ -144,7 +144,11 @@ class Command(BaseCommand):
     def _balance(self, bic: str) -> Decimal:
         r = requests.get(f'{self._target_url()}/banks/{bic}', timeout=10, **self._req_kwargs())
         r.raise_for_status()
-        return Decimal(str(r.json().get('balance', '0')))
+        data = r.json()
+        accounts = data.get('settlement_accounts') or []
+        if accounts:
+            return Decimal(str(accounts[0].get('balance', '0')))
+        return Decimal(str(data.get('balance', '0')))
 
     # ------------------------------------------------------------------
     # Pre-flight

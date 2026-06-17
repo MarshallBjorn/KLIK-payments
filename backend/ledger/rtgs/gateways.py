@@ -19,6 +19,8 @@ from typing import Any
 from uuid import UUID
 
 import requests
+from defusedxml.ElementTree import ParseError
+from defusedxml.ElementTree import fromstring as parse_xml
 
 from ledger.rtgs.exceptions import RTGSUnavailableError
 from ledger.rtgs.gateway import (
@@ -205,7 +207,7 @@ class HTTPRTGSGateway(RTGSGateway):
             )
 
         try:
-            return self.parse_response(transfer, response.json())
+            return self.parse_response(transfer, self._decode_response(response))
         except (ValueError, KeyError) as exc:
             logger.error(
                 'RTGS %s: niewłaściwa odpowiedź dla transferu %s: %s',
@@ -218,6 +220,15 @@ class HTTPRTGSGateway(RTGSGateway):
                 status=TransferStatus.FAILED,
                 failure_reason=f'Invalid response: {exc}',
             )
+
+    def _decode_response(self, response) -> dict[str, Any]:
+        """Dekoduje ciało odpowiedzi RTGS do dict. Default: JSON (format mocka).
+
+        Podklasy o innym formacie odpowiedzi (TARGET2 → ISO 20022 XML pain.002)
+        nadpisują tę metodę. Wyjątki dekodowania zamieniamy na ValueError, żeby
+        złapał je wspólny handler w `_settle_one` (→ FAILED 'Invalid response').
+        """
+        return response.json()
 
     def build_payload(self, session_id: UUID, transfer: TransferRequest) -> dict[str, Any]:
         """Zmapuj TransferRequest na payload zgodny z protokołem RTGS.
@@ -297,6 +308,7 @@ class TARGET2Gateway(HTTPRTGSGateway):
     system_name = 'TARGET2'
     SETTLE_PATH = '/transfers/xml'
     HEALTH_PATH = '/banks'
+    _SETTLED_TX_STS = {'ACSC', 'ACCC'}
 
     def __init__(
         self,
@@ -371,19 +383,35 @@ class TARGET2Gateway(HTTPRTGSGateway):
             '</Document>'
         )
 
+    def _decode_response(self, response) -> dict[str, Any]:
+        """TARGET zwraca ISO 20022 pain.002 (CstmrPmtStsRpt) jako XML, nie JSON.
+
+        Parsujemy przez defusedxml — odpowiedź pochodzi z zewnętrznego RTGS,
+        więc nie ufamy stdlib `xml` (S314: billion-laughs / XXE).
+        """
+        try:
+            root = parse_xml(response.text)
+        except ParseError as exc:
+            raise ValueError(f'Niepoprawny XML od TARGET: {exc}') from exc
+        # Odpowiedź bez namespace (tak buduje ją serwis EU).
+        return {
+            'status': root.findtext('.//TxSts') or '',
+            'transfer_id': root.findtext('.//OrgnlEndToEndId') or '',
+        }
+
     def parse_response(self, transfer, response_json) -> TransferResult:
-        """TARGET: status=='settled' → SUCCESS; rtgs_reference = jego transfer_id."""
-        status_str = (response_json.get('status') or '').lower()
-        if status_str == 'settled':
+        """TARGET: pain.002 TxSts ∈ {ACSC,ACCC} → SUCCESS; rtgs_reference = OrgnlEndToEndId."""
+        status_str = (response_json.get('status') or '').upper()
+        if status_str in self._SETTLED_TX_STS:
             return TransferResult(
                 transfer_id=transfer.transfer_id,
                 status=TransferStatus.SUCCESS,
                 rtgs_reference=str(response_json.get('transfer_id', '')),
             )
-        reason = (
-            response_json.get('detail') or response_json.get('status') or 'TARGET: nieznany status'
+        reason = response_json.get('detail') or status_str or 'TARGET: nieznany status'
+        logger.warning(
+            'RTGS TARGET2: transfer %s nie settled (TxSts=%s)', transfer.transfer_id, status_str
         )
-        logger.warning('RTGS TARGET2: transfer %s nie settled: %s', transfer.transfer_id, reason)
         return TransferResult(
             transfer_id=transfer.transfer_id,
             status=TransferStatus.FAILED,

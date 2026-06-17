@@ -116,10 +116,11 @@ class LedgerService:
             )
 
         if transaction.klik_fee > 0:
+            klik_bank = _resolve_klik_operator_bank(zone)
             entries.append(
                 LedgerEntry.objects.create(
                     from_bank=sender_bank,
-                    to_bank=sender_bank,  # KLIK collect-at-source w MVP
+                    to_bank=klik_bank or sender_bank,
                     beneficiary_type=BeneficiaryType.KLIK,
                     beneficiary_ref=None,
                     amount=transaction.klik_fee,
@@ -281,11 +282,10 @@ class LedgerService:
                 redis.delete(key)
                 continue
 
+            klik_bank = _resolve_klik_operator_bank(bank.zone)
             entry = LedgerEntry.objects.create(
                 from_bank=bank,
-                # KLIK collect-at-source: do_bank = bank z którego pobieramy
-                # (analogicznie do KLIK_FEE_C2B w record_c2b_transaction).
-                to_bank=bank,
+                to_bank=klik_bank or bank,
                 beneficiary_type=BeneficiaryType.KLIK,
                 beneficiary_ref=None,
                 amount=total_fee,
@@ -568,3 +568,16 @@ def _resolve_session_currency(session: SettlementSession) -> str:
     from common.enums import ZONE_CURRENCY, Zone
 
     return ZONE_CURRENCY[Zone(session.zone)].value
+
+
+def _resolve_klik_operator_bank(zone: str):
+    """Bank-uczestnik KLIK dla strefy (inkaso prowizji przez RTGS) albo None.
+
+    None → tryb collect-at-source (entry from==to, netuje się do zera).
+    """
+    from django.conf import settings
+
+    name = (getattr(settings, 'KLIK_OPERATOR_BANK_BY_ZONE', {}) or {}).get(zone)
+    if not name:
+        return None
+    return Bank.objects.filter(name=name, zone=zone).first()
