@@ -411,3 +411,54 @@ class TestAccrueP2PLookupFees:
 
         result = accrue_p2p_lookup_fees.apply(args=[today.isoformat()]).get()
         assert result['entries_created'] == 0
+
+
+@pytest.mark.django_db
+def test_klik_fee_routed_to_operator_when_zone_configured(
+    settings, bank_pl, agent, msc, merchant_off_us
+):
+    """Gdy strefa ma operatora KLIK → KLIK_FEE leci do niego (realne inkaso, from≠to)."""
+    klik = Bank.objects.create(
+        name='KLIK Operator PL',
+        api_key_hash='klik_op_pl_hash',  # pragma: allowlist secret
+        zone=Zone.PL,
+        currency='PLN',
+        debt_limit=Decimal('0'),
+        webhook_url='https://klik.example.com/webhook',
+    )
+    settings.KLIK_OPERATOR_BANK_BY_ZONE = {'PL': 'KLIK Operator PL'}
+
+    tx = _make_completed_tx(
+        sender_bank=bank_pl,
+        agent=agent,
+        merchant=merchant_off_us,
+        idempotency_key='klik-fee-route-operator',
+    )
+    LedgerService.record_c2b_transaction(tx)
+
+    fee = LedgerEntry.objects.get(
+        source_ref='klik-fee-route-operator', entry_type=LedgerEntryType.KLIK_FEE_C2B
+    )
+    assert fee.from_bank_id == bank_pl.id
+    assert fee.to_bank_id == klik.id  # from ≠ to → wygeneruje przelew RTGS
+
+
+@pytest.mark.django_db
+def test_klik_fee_collect_at_source_when_zone_not_configured(
+    settings, bank_pl, agent, msc, merchant_off_us
+):
+    """Brak operatora dla strefy → stary tryb collect-at-source (from==to, netuje do zera)."""
+    settings.KLIK_OPERATOR_BANK_BY_ZONE = {}
+
+    tx = _make_completed_tx(
+        sender_bank=bank_pl,
+        agent=agent,
+        merchant=merchant_off_us,
+        idempotency_key='klik-fee-route-fallback',
+    )
+    LedgerService.record_c2b_transaction(tx)
+
+    fee = LedgerEntry.objects.get(
+        source_ref='klik-fee-route-fallback', entry_type=LedgerEntryType.KLIK_FEE_C2B
+    )
+    assert fee.to_bank_id == bank_pl.id  # from == to → bez przelewu RTGS

@@ -97,24 +97,41 @@ Te entries trafiają do najbliższej sesji wspólnie z prowizjami C2B.
 
 ---
 
-## 6. ⚠️ Gdzie są nasze składki i jak (nie) są ściągane — stan MVP
+## 6. Gdzie są nasze składki i jak są inkasowane
 
-To jest najważniejszy punkt i świadome uproszczenie obecnej implementacji:
+KLIK pobiera prowizje (`KLIK_FEE_C2B`, `P2P_LOOKUP_FEE`) jako **uczestnik
+rozliczeń** — ma własny bank-operator z kontem w RTGS danej strefy.
 
-- `KLIK_FEE_C2B` i `P2P_LOOKUP_FEE` są tworzone z `from_bank == to_bank`
-  (`to_bank = sender_bank`, beneficiary `KLIK`) — model **collect‑at‑source**.
-- W multilateralnym nettingu (§7) pozycja `A → A` dodaje i odejmuje od **tego
-  samego** banku → **netuje się do zera**.
-- **Konsekwencja:** prowizje KLIK są **zarejestrowane** (audyt, raport dla banku),
-  ale w obecnym MVP **nie generują przelewu RTGS** i nie są fizycznie pobierane
-  jako osobny ruch pieniędzy. Faktyczne zainkasowanie wymagałoby własnego konta
-  rozliczeniowego KLIK i entry `Bank → konto_KLIK` (post‑MVP).
+**Mechanizm (config‑driven, per strefa):** `settings.KLIK_OPERATOR_BANK_BY_ZONE`
+mapuje strefę na `Bank.name` operatora KLIK:
 
-`agent_fee` i `merchant_net` mają realne `from ≠ to`, więc **są** rozliczane przez RTGS.
+```python
+KLIK_OPERATOR_BANK_BY_ZONE = {
+    'EU': 'KLIK Operator EU',
+    # 'PL': 'KLIK Operator PL',  # dodawane wraz z onboardingiem KLIK w danym RTGS
+}
+```
 
-> Mówiąc wprost: dziś przez RTGS realnie płyną pieniądze **bank→bank**
-> (merchant_net) i **bank→bank agenta** (agent_fee). Składki KLIK są na razie
-> tylko zaksięgowane.
+- **Strefa W mapie** → `KLIK_FEE_C2B.to_bank = operator KLIK` (`from ≠ to`).
+  Netting generuje realny `SettlementTransfer  Bank_N → KLIK`, dispatcher wysyła
+  go do RTGS, a środki **realnie lądują na koncie KLIK** w danym systemie.
+  To samo dla `P2P_LOOKUP_FEE`.
+- **Strefa POZA mapą** → fallback **collect‑at‑source** (`to_bank = sender`,
+  `from == to`): prowizja jest **tylko księgowana**, netuje się do zera, nie ma
+  przelewu RTGS. (Stan przejściowy dla stref, w których KLIK nie jest jeszcze
+  onboardowany.)
+
+`merchant_net` i `agent_fee` mają realne `from ≠ to` zawsze — są rozliczane
+przez RTGS niezależnie od powyższego.
+
+> ⚠️ Konsekwencja operacyjna: w skonfigurowanej strefie **dostępność KLIK w RTGS
+> gatekeep'uje sesję** — jeśli transfer prowizji do KLIK padnie, cała sesja
+> strefy idzie `FAILED` (zasada „dowolny fail → sesja FAILED"). Dlatego strefę
+> włącza się dopiero po onboardingu KLIK w jej RTGS.
+
+**Status:** EU — inkaso aktywne i zweryfikowane end‑to‑end (saldo konta KLIK
+w TARGET rośnie po sesji `COMPLETED`). PL/UK/US — collect‑at‑source do czasu
+onboardingu KLIK w SORBNET3/CHAPS/FedNow.
 
 ---
 
@@ -190,7 +207,7 @@ Różnice formatów: TARGET używa ISO 20022 (XML pain.001 w żądaniu, pain.002
 
 - **Gdzie są pieniądze?** Na kontach rozliczeniowych banków w RTGS. KLIK nie trzyma środków.
 - **Jak płyną?** Bank→bank, jednym przelewem netto na strefę, po nettingu, przez RTGS danej strefy.
-- **Gdzie nasze składki (KLIK)?** Księgowane jako `KLIK_FEE_C2B` / `P2P_LOOKUP_FEE` (beneficiary KLIK). **W MVP netują się do zera i nie są jeszcze fizycznie ściągane** (§6).
+- **Gdzie nasze składki (KLIK)?** Księgowane jako `KLIK_FEE_C2B` / `P2P_LOOKUP_FEE` (beneficiary KLIK). W strefach z `KLIK_OPERATOR_BANK_BY_ZONE` **realnie inkasowane przez RTGS** (EU: tak). W pozostałych — collect‑at‑source (księgowane, nie pobierane).
 - **Co realnie idzie przez RTGS?** `merchant_net` i `agent_fee` (from ≠ to).
 - **Jak często?** Per strefa, w cyklu Celery Beat; P2P fee naliczane nocą (23:55 UTC).
 - **Co przy awarii?** Nierozliczone entries wracają do następnej sesji (nic nie ginie).
