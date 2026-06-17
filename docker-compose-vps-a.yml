@@ -43,6 +43,7 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-marshallbjorn/klik-payments}/backend:${IMAGE_TAG:-latest}
     command: >
       sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
              gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 4
                      --access-logfile - --error-logfile -"
     env_file: .env
