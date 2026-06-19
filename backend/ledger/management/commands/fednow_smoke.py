@@ -51,68 +51,77 @@ from merchants.models import Merchant
 
 # ── RTN-y banków testowych ─────────────────────────────────────────────────
 # Muszą być zarejestrowane w bank_details FedNow (BANK0_RTN... w .env FedSystems).
-RTN_A     = '021000021'
-RTN_B     = '021000022'
-RTN_C     = '021000023'
-RTN_GHOST = '000000099'   # celowo niezarejestrowany w FedNow
+RTN_A = "021000021"
+RTN_B = "021000022"
+RTN_C = "021000023"
+RTN_GHOST = "000000099"  # celowo niezarejestrowany w FedNow
 
-ACCT_A     = '1000000001'
-ACCT_B     = '2000000002'
-ACCT_C     = '3000000003'
-ACCT_GHOST = '9999999999'
+ACCT_A = "1000000001"
+ACCT_B = "2000000002"
+ACCT_C = "3000000003"
+ACCT_GHOST = "9999999999"
 
 # Prowizje MSC — muszą pasować do MSCAgreement tworzonych przez seed
-KLIK_PERC  = Decimal('0.30')   # 0.30%
-AGENT_PERC = Decimal('1.00')   # 1.00%
+KLIK_PERC = Decimal("0.30")  # 0.30%
+AGENT_PERC = Decimal("1.00")  # 1.00%
 
 
 def _klik_fee(amount: Decimal) -> Decimal:
-    return (amount * KLIK_PERC / 100).quantize(Decimal('0.01'))
+    return (amount * KLIK_PERC / 100).quantize(Decimal("0.01"))
 
 
 def _agent_fee(amount: Decimal) -> Decimal:
-    return (amount * AGENT_PERC / 100).quantize(Decimal('0.01'))
+    return (amount * AGENT_PERC / 100).quantize(Decimal("0.01"))
+
+
+def _us_account_identifier(routing_number: str, account_number: str) -> dict:
+    """Format zgodny z common.account._validate_us_routing."""
+    return {
+        "type": "us_routing",
+        "routing_number": routing_number,
+        "account_number": account_number,
+    }
 
 
 @dataclass
 class ScenarioResult:
     name: str
     ok: bool
-    detail: str = ''
+    detail: str = ""
     skipped: bool = False
 
 
 class Command(BaseCommand):
-    help = 'Smoke test integracji KLIK → FedNow (US/USD, pacs.008).'
+    help = "Smoke test integracji KLIK → FedNow (US/USD, pacs.008)."
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--scenario',
-            choices=['happy', 'unknown-rtn', 'fee-accrual', 'all'],
-            default='all',
+            "--scenario",
+            choices=["happy", "unknown-rtn", "fee-accrual", "all"],
+            default="all",
         )
 
     def handle(self, *_args, **opts):
-        scenario = opts['scenario']
+        scenario = opts["scenario"]
         try:
             self._preflight_health()
             self._preflight_no_active_session()
         except Exception as exc:
-            self.stderr.write(self.style.ERROR(f'\nABORTED (preflight): {exc}'))
+            self.stderr.write(self.style.ERROR(f"\nABORTED (preflight): {exc}"))
             traceback.print_exc()
             sys.exit(2)
 
         results: list[ScenarioResult] = []
         try:
-            if scenario in ('happy', 'all'):
+            if scenario in ("happy", "all"):
                 results.append(self._scenario_happy())
-            if scenario in ('unknown-rtn', 'all'):
+            if scenario in ("unknown-rtn", "all"):
                 self._preflight_no_active_session()
                 results.append(self._scenario_unknown_rtn())
-            if scenario in ('fee-accrual', 'all'):
+            if scenario in ("fee-accrual", "all"):
                 results.append(self._scenario_fee_accrual())
         except Exception as exc:
-            self.stderr.write(self.style.ERROR(f'\nABORTED (runtime): {exc}'))
+            self.stderr.write(self.style.ERROR(f"\nABORTED (runtime): {exc}"))
             traceback.print_exc()
             sys.exit(2)
 
@@ -125,25 +134,26 @@ class Command(BaseCommand):
 
     def _fednow_url(self) -> str:
         from django.conf import settings
-        return settings.FEDNOW_URL.rstrip('/')
+
+        return settings.FEDNOW_URL.rstrip("/")
 
     def _preflight_health(self) -> None:
-        url = f'{self._fednow_url()}/health'
+        url = f"{self._fednow_url()}/health"
         try:
             resp = requests.get(url, timeout=5)
             if resp.status_code != 200:
-                raise RuntimeError(f'FedNow /health zwrócił HTTP {resp.status_code}')
+                raise RuntimeError(f"FedNow /health zwrócił HTTP {resp.status_code}")
         except requests.RequestException as exc:
             raise RuntimeError(
-                f'FedNow nieosiągalny ({url}): {exc}\n'
-                'Sprawdź: docker compose -f FedSystems/docker-compose.yml ps\n'
-                'oraz FEDNOW_URL w .env KLIK.'
+                f"FedNow nieosiągalny ({url}): {exc}\n"
+                "Sprawdź: docker compose -f FedSystems/docker-compose.yml ps\n"
+                "oraz FEDNOW_URL w .env KLIK."
             ) from exc
-        self.stdout.write('[preflight] FedNow /health OK')
+        self.stdout.write("[preflight] FedNow /health OK")
 
     def _preflight_no_active_session(self) -> None:
         active = SettlementSession.objects.filter(
-            zone='US',
+            zone="US",
             status__in=[
                 SettlementSessionStatus.OPEN,
                 SettlementSessionStatus.NETTING,
@@ -152,8 +162,8 @@ class Command(BaseCommand):
         ).first()
         if active:
             raise RuntimeError(
-                f'Aktywna sesja US {active.id} (status={active.status}) blokuje run. '
-                'Zakończ ją w Admin lub poczekaj na jej zakończenie.'
+                f"Aktywna sesja US {active.id} (status={active.status}) blokuje run. "
+                "Zakończ ją w Admin lub poczekaj na jej zakończenie."
             )
 
     # ──────────────────────────────────────────────────────────────────
@@ -161,39 +171,50 @@ class Command(BaseCommand):
     # ──────────────────────────────────────────────────────────────────
 
     def _get_or_create_bank(self, name: str, rtn: str, acct: str) -> Bank:
-        bank, _ = Bank.objects.get_or_create(
-            name=name,
-            defaults={
-                'zone': Zone.US,
-                'currency': Currency.USD,
-                'debt_limit': Decimal('10000000.00'),
-                'active': True,
-                'webhook_url': 'http://bank-mock-backend:8100/webhook',
-                'c2b_enabled': True,
-                'fednow_routing_number': rtn,
-                'fednow_account_number': acct,
-            },
-        )
+        bank = Bank.objects.filter(name=name).first()
+        if bank is None:
+            bank = Bank(
+                name=name,
+                zone=Zone.US,
+                currency=Currency.USD,
+                debt_limit=Decimal("10000000.00"),
+                active=True,
+                webhook_url="http://bank-mock-backend:8100/webhook",
+                c2b_enabled=True,
+                fednow_routing_number=rtn,
+                fednow_account_number=acct,
+            )
+            bank.rotate_api_key()  # ustawia bank.api_key_hash na unikalny hash
+            bank.save()
+            return bank
         # Upewnij się że pola FedNow są ustawione (bank mógł istnieć wcześniej)
         dirty = []
         if bank.fednow_routing_number != rtn:
             bank.fednow_routing_number = rtn
-            dirty.append('fednow_routing_number')
+            dirty.append("fednow_routing_number")
         if bank.fednow_account_number != acct:
             bank.fednow_account_number = acct
-            dirty.append('fednow_account_number')
+            dirty.append("fednow_account_number")
         if not bank.active:
             bank.active = True
-            dirty.append('active')
+            dirty.append("active")
         if dirty:
-            bank.save(update_fields=[*dirty, 'updated_at'])
+            bank.save(update_fields=[*dirty, "updated_at"])
         return bank
 
     def _get_or_create_agent(self, name: str, settlement_bank: Bank) -> Agent:
-        agent, _ = Agent.objects.get_or_create(
-            name=name,
-            defaults={'settlement_bank': settlement_bank, 'zone': Zone.US},
-        )
+        agent = Agent.objects.filter(name=name).first()
+        if agent is None:
+            agent = Agent.objects.create(
+                name=name,
+                api_key_hash=f"fednow-smoke-agent-{uuid4().hex}",
+                settlement_bank=settlement_bank,
+                account_identifier=_us_account_identifier(
+                    settlement_bank.fednow_routing_number,
+                    settlement_bank.fednow_account_number,
+                ),
+                zone=Zone.US,
+            )
         if not MSCAgreement.objects.filter(agent=agent, valid_to__isnull=True).exists():
             MSCAgreement.objects.create(
                 agent=agent,
@@ -205,10 +226,20 @@ class Command(BaseCommand):
         return agent
 
     def _get_or_create_merchant(self, name: str, bank: Bank) -> Merchant:
-        merchant, _ = Merchant.objects.get_or_create(
-            name=name,
-            defaults={'settlement_bank': bank, 'zone': Zone.US},
-        )
+        merchant = Merchant.objects.filter(name=name).first()
+        if merchant is None:
+            # Unikalny numer konta merchanta (4-17 cyfr) — różny od konta banku/agenta,
+            # żeby uniknąć kolizji jeśli walidacja kiedyś sprawdzi unikalność.
+            merchant_acct = str(int(uuid4().int % 10**10)).zfill(10)
+            merchant = Merchant.objects.create(
+                name=name,
+                settlement_bank=bank,
+                account_identifier=_us_account_identifier(
+                    bank.fednow_routing_number,
+                    merchant_acct,
+                ),
+                zone=Zone.US,
+            )
         return merchant
 
     def _make_tx(
@@ -227,7 +258,7 @@ class Command(BaseCommand):
             KLIK_FEE_C2B  — prowizja KLIK
             AGENT_FEE     — prowizja agenta
         """
-        klik_fee  = _klik_fee(amount)
+        klik_fee = _klik_fee(amount)
         agent_fee = _agent_fee(amount)
         merch_net = amount - klik_fee - agent_fee
         now = timezone.now()
@@ -245,7 +276,7 @@ class Command(BaseCommand):
             is_on_us=(sender_bank.id == merchant.settlement_bank_id),
             idempotency_key=idempotency_key,
             status=TransactionStatus.COMPLETED,
-            code_snapshot='SMOKE',
+            code_snapshot="SMOKE",
             authorized_at=now,
             completed_at=now,
         )
@@ -268,87 +299,106 @@ class Command(BaseCommand):
             - nasze entries settled po sesji
             - KLIK_FEE_C2B i AGENT_FEE z poprawnymi kwotami (dla każdej tx)
         """
-        name = 'HAPPY — 3 banki US, netting, FedNow settled, prowizje OK'
-        self.stdout.write(f'\n[scenario] {name}')
+        name = "HAPPY — 3 banki US, netting, FedNow settled, prowizje OK"
+        self.stdout.write(f"\n[scenario] {name}")
         run = uuid4().hex[:8]
 
-        bank_a = self._get_or_create_bank(f'FN-A-{run}', RTN_A, ACCT_A)
-        bank_b = self._get_or_create_bank(f'FN-B-{run}', RTN_B, ACCT_B)
-        bank_c = self._get_or_create_bank(f'FN-C-{run}', RTN_C, ACCT_C)
-        agent  = self._get_or_create_agent(f'FN-Agent-{run}', bank_c)
-        m_b    = self._get_or_create_merchant(f'FN-Merch-B-{run}', bank_b)
-        m_a    = self._get_or_create_merchant(f'FN-Merch-A-{run}', bank_a)
-        m_c    = self._get_or_create_merchant(f'FN-Merch-C-{run}', bank_c)
+        bank_a = self._get_or_create_bank(f"FN-A-{run}", RTN_A, ACCT_A)
+        bank_b = self._get_or_create_bank(f"FN-B-{run}", RTN_B, ACCT_B)
+        bank_c = self._get_or_create_bank(f"FN-C-{run}", RTN_C, ACCT_C)
+        agent = self._get_or_create_agent(f"FN-Agent-{run}", bank_c)
+        m_b = self._get_or_create_merchant(f"FN-Merch-B-{run}", bank_b)
+        m_a = self._get_or_create_merchant(f"FN-Merch-A-{run}", bank_a)
+        m_c = self._get_or_create_merchant(f"FN-Merch-C-{run}", bank_c)
 
         # 3 off-us tx — A→B 150, B→A 200, A→C 100
         # netto: A = -150+200-100 = -50, B = +150-200 = -50, C = +100 → 2 transfery do C
         tx_specs = [
-            (bank_a, m_b, Decimal('150.00'), f'fn-{run}-tx1'),
-            (bank_b, m_a, Decimal('200.00'), f'fn-{run}-tx2'),
-            (bank_a, m_c, Decimal('100.00'), f'fn-{run}-tx3'),
+            (bank_a, m_b, Decimal("150.00"), f"fn-{run}-tx1"),
+            (bank_b, m_a, Decimal("200.00"), f"fn-{run}-tx2"),
+            (bank_a, m_c, Decimal("100.00"), f"fn-{run}-tx3"),
         ]
         txs = []
         for sender, merchant, amount, idem in tx_specs:
-            txs.append(self._make_tx(
-                sender_bank=sender, agent=agent, merchant=merchant,
-                amount=amount, idempotency_key=idem,
-            ))
+            txs.append(
+                self._make_tx(
+                    sender_bank=sender,
+                    agent=agent,
+                    merchant=merchant,
+                    amount=amount,
+                    idempotency_key=idem,
+                )
+            )
 
-        self.stdout.write(f'  [seed] {len(txs)} tx off-us, run={run}')
+        self.stdout.write(f"  [seed] {len(txs)} tx off-us, run={run}")
 
         # ── Asercja prowizji PRZED settlement ──────────────────────
         for tx in txs:
             err = self._check_fee_entries(tx)
             if err:
                 return ScenarioResult(name, False, err)
-        self.stdout.write('  [fee] KLIK_FEE_C2B + AGENT_FEE + merchant_net spójne  ✓')
+        self.stdout.write("  [fee] KLIK_FEE_C2B + AGENT_FEE + merchant_net spójne  ✓")
 
         # ── Settlement ─────────────────────────────────────────────
-        task_result = run_settlement_session.apply(args=['US']).get()
-        self.stdout.write(f'  [task] {task_result}')
+        task_result = run_settlement_session.apply(args=["US"]).get()
+        self.stdout.write(f"  [task] {task_result}")
 
-        session_id = task_result.get('session_id')
+        session_id = task_result.get("session_id")
         if not session_id:
-            return ScenarioResult(name, False, f'brak session_id w wyniku: {task_result}')
+            return ScenarioResult(
+                name, False, f"brak session_id w wyniku: {task_result}"
+            )
 
         session = SettlementSession.objects.get(id=session_id)
         transfers = list(SettlementTransfer.objects.filter(session=session))
 
         if not transfers:
-            return ScenarioResult(name, False, 'oczekiwano ≥1 transferu, jest 0')
+            return ScenarioResult(name, False, "oczekiwano ≥1 transferu, jest 0")
 
-        failed_transfers = [t for t in transfers if t.status != SettlementTransferStatus.COMPLETED]
+        failed_transfers = [
+            t for t in transfers if t.status != SettlementTransferStatus.COMPLETED
+        ]
         if failed_transfers:
             details = [
-                (str(t.from_bank), str(t.to_bank), t.status, getattr(t, 'failure_reason', ''))
+                (
+                    str(t.from_bank),
+                    str(t.to_bank),
+                    t.status,
+                    getattr(t, "failure_reason", ""),
+                )
                 for t in failed_transfers
             ]
-            return ScenarioResult(name, False, f'transfery nie-COMPLETED: {details}')
+            return ScenarioResult(name, False, f"transfery nie-COMPLETED: {details}")
 
         if session.status != SettlementSessionStatus.COMPLETED:
-            return ScenarioResult(name, False, f'sesja status={session.status}, oczekiwano COMPLETED')
+            return ScenarioResult(
+                name, False, f"sesja status={session.status}, oczekiwano COMPLETED"
+            )
 
         # Referencje FedNow muszą zaczynać się od "FEDNOW-"
-        bad_refs = [t for t in transfers if not t.rtgs_reference.startswith('FEDNOW-')]
+        bad_refs = [t for t in transfers if not t.rtgs_reference.startswith("FEDNOW-")]
         if bad_refs:
             return ScenarioResult(
-                name, False,
-                f'{len(bad_refs)} transferów bez prefixu FEDNOW-*: '
-                f'{[t.rtgs_reference for t in bad_refs]}',
+                name,
+                False,
+                f"{len(bad_refs)} transferów bez prefixu FEDNOW-*: "
+                f"{[t.rtgs_reference for t in bad_refs]}",
             )
 
         # Nasze entries muszą być settled po sesji
         unsettled = LedgerEntry.objects.filter(
             session=session,
-            source_ref__startswith=f'fn-{run}-',
+            source_ref__startswith=f"fn-{run}-",
             settled=False,
         ).count()
         if unsettled:
-            return ScenarioResult(name, False, f'{unsettled} naszych entries niesettled')
+            return ScenarioResult(
+                name, False, f"{unsettled} naszych entries niesettled"
+            )
 
         self.stdout.write(
-            f'  COMPLETED: {len(transfers)} transferów, '
-            f'refs={[t.rtgs_reference for t in transfers]}'
+            f"  COMPLETED: {len(transfers)} transferów, "
+            f"refs={[t.rtgs_reference for t in transfers]}"
         )
         return ScenarioResult(name, True)
 
@@ -364,48 +414,56 @@ class Command(BaseCommand):
         Gateway mapuje to na FAILED z failure_reason z tego "detail".
         Entry do ghost-banku musi pozostać niesettled.
         """
-        name = 'UNKNOWN RTN — FedNow odrzuca niezarejestrowany RTN → FAILED'
-        self.stdout.write(f'\n[scenario] {name}')
+        name = "UNKNOWN RTN — FedNow odrzuca niezarejestrowany RTN → FAILED"
+        self.stdout.write(f"\n[scenario] {name}")
         run = uuid4().hex[:8]
 
-        bank_a = self._get_or_create_bank(f'FN-A-{run}', RTN_A, ACCT_A)
-        ghost  = self._get_or_create_bank(f'FN-Ghost-{run}', RTN_GHOST, ACCT_GHOST)
-        agent  = self._get_or_create_agent(f'FN-Agent-{run}', bank_a)
-        m_ghost = self._get_or_create_merchant(f'FN-Merch-Ghost-{run}', ghost)
+        bank_a = self._get_or_create_bank(f"FN-A-{run}", RTN_A, ACCT_A)
+        ghost = self._get_or_create_bank(f"FN-Ghost-{run}", RTN_GHOST, ACCT_GHOST)
+        agent = self._get_or_create_agent(f"FN-Agent-{run}", bank_a)
+        m_ghost = self._get_or_create_merchant(f"FN-Merch-Ghost-{run}", ghost)
 
-        idem = f'fn-{run}-ghost'
+        idem = f"fn-{run}-ghost"
         self._make_tx(
-            sender_bank=bank_a, agent=agent, merchant=m_ghost,
-            amount=Decimal('100.00'), idempotency_key=idem,
+            sender_bank=bank_a,
+            agent=agent,
+            merchant=m_ghost,
+            amount=Decimal("100.00"),
+            idempotency_key=idem,
         )
-        self.stdout.write(f'  [seed] bank_a ({RTN_A}) → ghost ({RTN_GHOST}) 100 USD')
+        self.stdout.write(f"  [seed] bank_a ({RTN_A}) → ghost ({RTN_GHOST}) 100 USD")
 
-        task_result = run_settlement_session.apply(args=['US']).get()
-        self.stdout.write(f'  [task] {task_result}')
+        task_result = run_settlement_session.apply(args=["US"]).get()
+        self.stdout.write(f"  [task] {task_result}")
 
-        session_id = task_result.get('session_id')
+        session_id = task_result.get("session_id")
         if not session_id:
-            return ScenarioResult(name, False, f'brak session_id: {task_result}')
+            return ScenarioResult(name, False, f"brak session_id: {task_result}")
 
         session = SettlementSession.objects.get(id=session_id)
         transfers = list(SettlementTransfer.objects.filter(session=session))
 
         ghost_transfers = [t for t in transfers if t.to_bank_id == ghost.id]
         if not ghost_transfers:
-            return ScenarioResult(name, False, 'brak transferu do ghost bank w sesji')
+            return ScenarioResult(name, False, "brak transferu do ghost bank w sesji")
 
         t = ghost_transfers[0]
-        reason = getattr(t, 'failure_reason', '') or ''
+        reason = getattr(t, "failure_reason", "") or ""
 
         if t.status != SettlementTransferStatus.FAILED:
-            return ScenarioResult(name, False, f'oczekiwano FAILED dla ghost, jest {t.status}')
+            return ScenarioResult(
+                name, False, f"oczekiwano FAILED dla ghost, jest {t.status}"
+            )
 
         # FedNow zwraca "Unknown bank RTN(s): ..." albo lokalny walidator
         # zwraca "Brak danych FedNow..." — oba akceptujemy
         reason_lower = reason.lower()
-        if not any(kw in reason_lower for kw in ('unknown', 'rtn', 'routing', 'brak danych')):
+        if not any(
+            kw in reason_lower for kw in ("unknown", "rtn", "routing", "brak danych")
+        ):
             return ScenarioResult(
-                name, False,
+                name,
+                False,
                 f'powód nie zawiera "unknown"/"rtn"/"routing": {reason!r}',
             )
 
@@ -416,9 +474,11 @@ class Command(BaseCommand):
             settled=False,
         ).count()
         if unsettled == 0:
-            return ScenarioResult(name, False, 'entry do ghost-banku powinno być niesettled')
+            return ScenarioResult(
+                name, False, "entry do ghost-banku powinno być niesettled"
+            )
 
-        self.stdout.write(f'  FAILED z powodem: {reason!r}, entry niesettled  ✓')
+        self.stdout.write(f"  FAILED z powodem: {reason!r}, entry niesettled  ✓")
         return ScenarioResult(name, True)
 
     # ──────────────────────────────────────────────────────────────────
@@ -439,20 +499,23 @@ class Command(BaseCommand):
 
         Nie uruchamia settlement — sprawdza tylko księgowanie prowizji.
         """
-        name = 'FEE ACCRUAL — prowizja KLIK + agent pobierana z każdej transakcji'
-        self.stdout.write(f'\n[scenario] {name}')
+        name = "FEE ACCRUAL — prowizja KLIK + agent pobierana z każdej transakcji"
+        self.stdout.write(f"\n[scenario] {name}")
         run = uuid4().hex[:8]
-        amount = Decimal('500.00')
+        amount = Decimal("500.00")
 
-        bank_a = self._get_or_create_bank(f'FN-A-{run}', RTN_A, ACCT_A)
-        bank_b = self._get_or_create_bank(f'FN-B-{run}', RTN_B, ACCT_B)
-        agent  = self._get_or_create_agent(f'FN-Agent-{run}', bank_b)
-        m_b    = self._get_or_create_merchant(f'FN-Merch-B-{run}', bank_b)
+        bank_a = self._get_or_create_bank(f"FN-A-{run}", RTN_A, ACCT_A)
+        bank_b = self._get_or_create_bank(f"FN-B-{run}", RTN_B, ACCT_B)
+        agent = self._get_or_create_agent(f"FN-Agent-{run}", bank_b)
+        m_b = self._get_or_create_merchant(f"FN-Merch-B-{run}", bank_b)
 
-        idem = f'fn-{run}-fee'
+        idem = f"fn-{run}-fee"
         tx = self._make_tx(
-            sender_bank=bank_a, agent=agent, merchant=m_b,
-            amount=amount, idempotency_key=idem,
+            sender_bank=bank_a,
+            agent=agent,
+            merchant=m_b,
+            amount=amount,
+            idempotency_key=idem,
         )
 
         err = self._check_fee_entries(tx, agent=agent)
@@ -461,16 +524,16 @@ class Command(BaseCommand):
 
         # Wyświetl podsumowanie
         entries = LedgerEntry.objects.filter(source_ref=idem)
-        klik_e  = entries.filter(entry_type='KLIK_FEE_C2B').first()
-        agent_e = entries.filter(entry_type='AGENT_FEE').first()
+        klik_e = entries.filter(entry_type="KLIK_FEE_C2B").first()
+        agent_e = entries.filter(entry_type="AGENT_FEE").first()
         self.stdout.write(
-            f'  amount_gross = {amount} USD\n'
-            f'  klik_fee     = {klik_e.amount} USD  '
-            f'({KLIK_PERC}% × {amount} = {_klik_fee(amount)})  ✓\n'
-            f'  agent_fee    = {agent_e.amount} USD  '
-            f'({AGENT_PERC}% × {amount} = {_agent_fee(amount)})  ✓\n'
-            f'  merchant_net = {tx.merchant_net} USD  ✓\n'
-            f'  bilans: {klik_e.amount + agent_e.amount + tx.merchant_net} == {amount}  ✓'
+            f"  amount_gross = {amount} USD\n"
+            f"  klik_fee     = {klik_e.amount} USD  "
+            f"({KLIK_PERC}% × {amount} = {_klik_fee(amount)})  ✓\n"
+            f"  agent_fee    = {agent_e.amount} USD  "
+            f"({AGENT_PERC}% × {amount} = {_agent_fee(amount)})  ✓\n"
+            f"  merchant_net = {tx.merchant_net} USD  ✓\n"
+            f"  bilans: {klik_e.amount + agent_e.amount + tx.merchant_net} == {amount}  ✓"
         )
         return ScenarioResult(name, True)
 
@@ -482,71 +545,73 @@ class Command(BaseCommand):
         """Weryfikuje entries prowizji dla transakcji. Zwraca opis błędu lub None."""
         entries = LedgerEntry.objects.filter(source_ref=tx.idempotency_key)
 
-        klik_e  = entries.filter(entry_type='KLIK_FEE_C2B').first()
-        agent_e = entries.filter(entry_type='AGENT_FEE').first()
+        klik_e = entries.filter(entry_type="KLIK_FEE_C2B").first()
+        agent_e = entries.filter(entry_type="AGENT_FEE").first()
 
         # 1 + 2. Istnienie entries
         if not klik_e:
-            return f'tx {tx.idempotency_key}: brak entry KLIK_FEE_C2B'
+            return f"tx {tx.idempotency_key}: brak entry KLIK_FEE_C2B"
         if not agent_e:
-            return f'tx {tx.idempotency_key}: brak entry AGENT_FEE'
+            return f"tx {tx.idempotency_key}: brak entry AGENT_FEE"
 
         # Oczekiwane kwoty
-        exp_klik  = _klik_fee(tx.amount_gross)
+        exp_klik = _klik_fee(tx.amount_gross)
         exp_agent = _agent_fee(tx.amount_gross)
-        exp_net   = tx.amount_gross - exp_klik - exp_agent
+        exp_net = tx.amount_gross - exp_klik - exp_agent
 
         # 1. Kwota klik_fee
         if klik_e.amount != exp_klik:
             return (
-                f'tx {tx.idempotency_key}: '
-                f'KLIK_FEE_C2B.amount={klik_e.amount} != {exp_klik} '
-                f'({tx.amount_gross} × {KLIK_PERC}%)'
+                f"tx {tx.idempotency_key}: "
+                f"KLIK_FEE_C2B.amount={klik_e.amount} != {exp_klik} "
+                f"({tx.amount_gross} × {KLIK_PERC}%)"
             )
 
         # 2. Kwota agent_fee
         if agent_e.amount != exp_agent:
             return (
-                f'tx {tx.idempotency_key}: '
-                f'AGENT_FEE.amount={agent_e.amount} != {exp_agent} '
-                f'({tx.amount_gross} × {AGENT_PERC}%)'
+                f"tx {tx.idempotency_key}: "
+                f"AGENT_FEE.amount={agent_e.amount} != {exp_agent} "
+                f"({tx.amount_gross} × {AGENT_PERC}%)"
             )
 
         # 3. merchant_net na transakcji
         if tx.merchant_net != exp_net:
             return (
-                f'tx {tx.idempotency_key}: '
-                f'merchant_net={tx.merchant_net} != {exp_net} '
-                f'({tx.amount_gross} - {exp_klik} - {exp_agent})'
+                f"tx {tx.idempotency_key}: "
+                f"merchant_net={tx.merchant_net} != {exp_net} "
+                f"({tx.amount_gross} - {exp_klik} - {exp_agent})"
             )
 
         # 4. Bilans
         total = klik_e.amount + agent_e.amount + tx.merchant_net
         if total != tx.amount_gross:
             return (
-                f'tx {tx.idempotency_key}: '
-                f'klik+agent+net={total} != amount_gross={tx.amount_gross}'
+                f"tx {tx.idempotency_key}: "
+                f"klik+agent+net={total} != amount_gross={tx.amount_gross}"
             )
 
         # 5. KLIK_FEE_C2B.beneficiary_type == 'KLIK', bez ref
-        if str(klik_e.beneficiary_type) != 'KLIK':
-            return f'KLIK_FEE_C2B.beneficiary_type={klik_e.beneficiary_type!r} != "KLIK"'
+        if str(klik_e.beneficiary_type) != "KLIK":
+            return (
+                f'KLIK_FEE_C2B.beneficiary_type={klik_e.beneficiary_type!r} != "KLIK"'
+            )
         if klik_e.beneficiary_ref is not None:
-            return f'KLIK_FEE_C2B.beneficiary_ref={klik_e.beneficiary_ref} powinno być None'
+            return f"KLIK_FEE_C2B.beneficiary_ref={klik_e.beneficiary_ref} powinno być None"
 
         # 6. AGENT_FEE.beneficiary_type == 'AGENT', ref == agent.id
-        if str(agent_e.beneficiary_type) != 'AGENT':
+        if str(agent_e.beneficiary_type) != "AGENT":
             return f'AGENT_FEE.beneficiary_type={agent_e.beneficiary_type!r} != "AGENT"'
         if agent is not None and agent_e.beneficiary_ref != agent.id:
             return (
-                f'AGENT_FEE.beneficiary_ref={agent_e.beneficiary_ref} '
-                f'!= agent.id={agent.id}'
+                f"AGENT_FEE.beneficiary_ref={agent_e.beneficiary_ref} "
+                f"!= agent.id={agent.id}"
             )
 
         # 7. Waluta i strefa
-        if str(klik_e.currency) != 'USD':
+        if str(klik_e.currency) != "USD":
             return f'KLIK_FEE_C2B.currency={klik_e.currency!r} != "USD"'
-        if str(klik_e.zone) != 'US':
+        if str(klik_e.zone) != "US":
             return f'KLIK_FEE_C2B.zone={klik_e.zone!r} != "US"'
 
         return None
@@ -556,22 +621,22 @@ class Command(BaseCommand):
     # ──────────────────────────────────────────────────────────────────
 
     def _print_summary(self, results: list[ScenarioResult]) -> None:
-        self.stdout.write('\n========== FEDNOW SMOKE SUMMARY ==========')
+        self.stdout.write("\n========== FEDNOW SMOKE SUMMARY ==========")
         for r in results:
             if r.skipped:
-                tag = self.style.WARNING('SKIP')
+                tag = self.style.WARNING("SKIP")
             elif r.ok:
-                tag = self.style.SUCCESS('PASS')
+                tag = self.style.SUCCESS("PASS")
             else:
-                tag = self.style.ERROR('FAIL')
-            line = f'  {tag}  {r.name}'
+                tag = self.style.ERROR("FAIL")
+            line = f"  {tag}  {r.name}"
             if r.detail:
-                line += f'  — {r.detail}'
+                line += f"  — {r.detail}"
             self.stdout.write(line)
 
-        passed  = sum(1 for r in results if r.ok and not r.skipped)
+        passed = sum(1 for r in results if r.ok and not r.skipped)
         skipped = sum(1 for r in results if r.skipped)
-        failed  = sum(1 for r in results if not r.ok and not r.skipped)
+        failed = sum(1 for r in results if not r.ok and not r.skipped)
 
         verdict = self.style.SUCCESS if failed == 0 else self.style.ERROR
-        self.stdout.write(verdict(f'\n{passed} PASS,  {skipped} SKIP,  {failed} FAIL'))
+        self.stdout.write(verdict(f"\n{passed} PASS,  {skipped} SKIP,  {failed} FAIL"))
