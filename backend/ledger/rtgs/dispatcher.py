@@ -38,8 +38,6 @@ class RTGSDispatcher:
     """
 
     def __init__(self, gateways: dict[str, RTGSGateway]):
-        # Klucze trzymamy jako string (np. 'PL'), nie Zone, bo strefa
-        # przychodzi do dispatch() z DB jako string i unikamy konwersji.
         self._gateways = gateways
 
     # ------------------------------------------------------------------
@@ -53,10 +51,19 @@ class RTGSDispatcher:
         Wymagane settings:
             SORBNET3_URL, TARGET2_URL, CHAPS_URL, FEDNOW_URL
             RTGS_TIMEOUT_SECONDS  (default 30)
+
+        Opcjonalne (dla FedNow):
+            FEDNOW_SENDER_PORT  (default '8000') — port pod którym FedNow
+                zna KLIK jako uczestnika (używany w /collect jako sender_port).
+                Musi zgadzać się z konfiguracją FedNow server-a.
+
+        Opcjonalne (dla TARGET2 mTLS):
+            TARGET_CLIENT_CERT, TARGET_CLIENT_KEY, TARGET_CA_CERT
         """
         from django.conf import settings
 
         timeout = getattr(settings, 'RTGS_TIMEOUT_SECONDS', 30)
+        fednow_sender_port = getattr(settings, 'FEDNOW_SENDER_PORT', '8000')
 
         gateways: dict[str, RTGSGateway] = {
             Zone.PL: SORBNET3Gateway(
@@ -77,9 +84,10 @@ class RTGSDispatcher:
             Zone.US: FedNowGateway(
                 base_url=settings.FEDNOW_URL,
                 timeout_seconds=timeout,
+                sender_port=fednow_sender_port,
             ),
         }
-        logger.info('RTGSDispatcher: skonfigurowano %d gateway-ów', len(gateways))
+        logger.info('RTGSDispatcher: skonfigurowano %d gateway-ów (PL/EU/UK/US)', len(gateways))
         return cls(gateways)
 
     # ------------------------------------------------------------------
