@@ -25,7 +25,7 @@ function saveBackend() {
   if (!backendUrl.value.trim()) { error.value = 'Podaj URL backendu banku'; return }
   save({ backendUrl: backendUrl.value.trim().replace(/\/$/, '') })
   error.value = ''
-  loadInfo()             
+  loadInfo()
 }
 
 async function saveKey() {
