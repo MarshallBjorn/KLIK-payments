@@ -211,17 +211,16 @@ FEDNOW_URL = env('FEDNOW_URL', default='http://rtgs-mock:9000/fednow')
 
 # Dołóż do sekcji KLIK — konfiguracja domenowa w backend/core/settings/base.py
 # (za istniejącym FEDNOW_URL):
- 
+
 # FedNow sender_port — port pod którym FedNow zna KLIK jako uczestnika.
 # Musi zgadzać się z konfiguracją FedNow server-a (patrz MQ_BANK*_PORT w FedNow).
 # Default '8000' = port serwisu web w docker-compose.
 FEDNOW_SENDER_PORT = env('FEDNOW_SENDER_PORT', default='8000')
- 
+
 # Jeśli FedNow wymaga mTLS (opcjonalne — domyślnie plain HTTP):
 # FEDNOW_CLIENT_CERT = env('FEDNOW_CLIENT_CERT', default='')
 # FEDNOW_CLIENT_KEY  = env('FEDNOW_CLIENT_KEY',  default='')
 # FEDNOW_CA_CERT     = env('FEDNOW_CA_CERT',     default='')
- 
 
 
 from core.celery_beat_schedule import build_beat_schedule  # noqa: E402

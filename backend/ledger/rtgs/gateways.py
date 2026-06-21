@@ -22,11 +22,16 @@ FedNow różni się istotnie:
 from __future__ import annotations
 
 import logging
+
+# ABA RTN: dokładnie 9 cyfr
+import re as _re
 import uuid as uuid_module
 from typing import Any
 from uuid import UUID
 
 import requests
+from defusedxml.ElementTree import ParseError
+from defusedxml.ElementTree import fromstring as parse_xml
 
 from ledger.rtgs.exceptions import RTGSUnavailableError
 from ledger.rtgs.gateway import (
@@ -128,6 +133,13 @@ class HTTPRTGSGateway(RTGSGateway):
             **self._request_kwargs(),
         )
 
+    def _decode_response(self, response) -> dict[str, Any]:
+        """Dekoduje ciało odpowiedzi RTGS do dict. Default: JSON (mock).
+
+        Podklasy o innym formacie (TARGET2 → ISO 20022 XML pain.002) nadpisują.
+        """
+        return response.json()
+
     def _settle_one(self, session_id: UUID, transfer: TransferRequest) -> TransferResult:
         """Wysyła jeden transfer; mapuje wyjątki sieciowe na TIMEOUT."""
         error = self._validate_transfer(transfer)
@@ -192,7 +204,7 @@ class HTTPRTGSGateway(RTGSGateway):
             )
 
         try:
-            return self.parse_response(transfer, response.json())
+            return self.parse_response(transfer, self._decode_response(response))
         except (ValueError, KeyError) as exc:
             logger.error(
                 'RTGS %s: niewłaściwa odpowiedź dla transferu %s: %s',
@@ -343,19 +355,33 @@ class TARGET2Gateway(HTTPRTGSGateway):
             '</Document>'
         )
 
+    _SETTLED_TX_STS = {'ACSC', 'ACCC'}
+
+    def _decode_response(self, response) -> dict[str, Any]:
+        """TARGET zwraca ISO 20022 pain.002 (CstmrPmtStsRpt) jako XML, nie JSON."""
+        try:
+            root = parse_xml(response.text)
+        except ParseError as exc:
+            raise ValueError(f'Niepoprawny XML od TARGET: {exc}') from exc
+        # Odpowiedź bez namespace (tak buduje ją serwis EU).
+        return {
+            'status': root.findtext('.//TxSts') or '',
+            'transfer_id': root.findtext('.//OrgnlEndToEndId') or '',
+        }
+
     def parse_response(self, transfer, response_json) -> TransferResult:
-        """TARGET: status=='settled' → SUCCESS; rtgs_reference = jego transfer_id."""
-        status_str = (response_json.get('status') or '').lower()
-        if status_str == 'settled':
+        """TARGET: pain.002 TxSts ∈ {ACSC,ACCC} → SUCCESS; rtgs_reference = OrgnlEndToEndId."""
+        status_str = (response_json.get('status') or '').upper()
+        if status_str in self._SETTLED_TX_STS:
             return TransferResult(
                 transfer_id=transfer.transfer_id,
                 status=TransferStatus.SUCCESS,
                 rtgs_reference=str(response_json.get('transfer_id', '')),
             )
-        reason = (
-            response_json.get('detail') or response_json.get('status') or 'TARGET: nieznany status'
+        reason = response_json.get('detail') or status_str or 'TARGET: nieznany status'
+        logger.warning(
+            'RTGS TARGET2: transfer %s nie settled (TxSts=%s)', transfer.transfer_id, status_str
         )
-        logger.warning('RTGS TARGET2: transfer %s nie settled: %s', transfer.transfer_id, reason)
         return TransferResult(
             transfer_id=transfer.transfer_id,
             status=TransferStatus.FAILED,
@@ -381,8 +407,7 @@ class CHAPSGateway(HTTPRTGSGateway):
 # Namespace ISO 20022 pacs.008.001.08
 _PACS008_NS = 'urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08'
 
-# ABA RTN: dokładnie 9 cyfr
-import re as _re
+
 _ABA_RTN_RE = _re.compile(r'^\d{9}$')
 
 
@@ -519,7 +544,9 @@ class FedNowGateway(RTGSGateway):
         """Waliduje, buduje pacs.008, wysyła do /collect, zwraca wynik."""
         error = self._validate_transfer(transfer)
         if error:
-            logger.warning('FedNow: transfer %s odrzucony lokalnie: %s', transfer.transfer_id, error)
+            logger.warning(
+                'FedNow: transfer %s odrzucony lokalnie: %s', transfer.transfer_id, error
+            )
             return TransferResult(
                 transfer_id=transfer.transfer_id,
                 status=TransferStatus.FAILED,
@@ -712,6 +739,7 @@ class FedNowGateway(RTGSGateway):
     @staticmethod
     def _now_iso() -> str:
         from datetime import UTC, datetime
+
         return datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%S')
 
     @staticmethod
@@ -719,8 +747,8 @@ class FedNowGateway(RTGSGateway):
         """Escape znaków specjalnych XML w nazwach banków."""
         return (
             text.replace('&', '&amp;')
-                .replace('<', '&lt;')
-                .replace('>', '&gt;')
-                .replace('"', '&quot;')
-                .replace("'", '&apos;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+            .replace("'", '&apos;')
         )
