@@ -133,6 +133,8 @@ przez RTGS niezależnie od powyższego.
 - **EU (TARGET)** — aktywne, zweryfikowane end-to-end (saldo konta KLIK w TARGET rośnie po sesji `COMPLETED`).
 - **UK (CHAPS)** — aktywne, zweryfikowane end-to-end (sesja UK `COMPLETED`, transfer prowizji do `KLIK Operator UK`).
 - **PL (SORBNET3) / US (FedNow)** — collect-at-source do czasu onboardingu KLIK w tych RTGS.
+- - **PL (SORBNET3) / US (FedNow)** — collect-at-source do czasu onboardingu KLIK w tych RTGS.
+  (PL: integracja z realnym serwisem SORBNET zespołu Elixir‑PZ **odrzucona** — patrz §10.)
 
 ---
 
@@ -212,7 +214,80 @@ co cała sesja traktuje jako fail. To zewnętrzna reguła RTGS, nie regresja KLI
 
 ---
 
-## 10. Szybkie odpowiedzi
+## 10. Integracja SORBNET3 (PL) — próba z realnym serwisem zespołu Elixir‑PZ
+
+**Decyzja: odrzucona. PL zostaje na RTGS mock; prowizje KLIK w PL pozostają collect‑at‑source (§6).**
+Bariery leżą **po stronie serwisu SORBNET** (projekt `Elixir-PZ`, moduł `sorbnet` — Spring Boot +
+Apache Kafka + YugabyteDB) i nie da się ich obejść bez ingerencji w ich kod/dane, czego nie robimy.
+Poniżej złożona przyczyna (na obronę).
+
+### Co serwis SORBNET realnie udostępnia (zweryfikowane w ich źródłach)
+
+Synchroniczny REST (`SorbnetPaymentController`, `AccountController`, `HealthController`):
+
+| Endpoint | Metoda | Format | Uwaga |
+|---|---|---|---|
+| `/api/sorbnet/payments` | POST | XML in/out | pacs.008‑style `Document/FIToFICstmrCdtTrf` → `Document/CstmrPmtStsRpt` |
+| `/api/health` | GET | JSON | `{"service":"sorbnet","status":"OK"}` |
+| `/api/sorbnet/accounts[/{bankId}]` | GET | JSON | podgląd sald (tylko `BANK_A/B/C`) |
+| `/api/sorbnet/accounts/{bankId}/deposit` | POST | JSON | wymaga **istniejącego** banku |
+| `/api/sorbnet/operator/banks/{id}/{block,unblock}` | POST | JSON | tylko blokada istniejących |
+
+Status zwrotny (`TxSts`): `SETTLED` / `REJECTED` / `GRIDLOCK_HELD`.
+
+### Bariery uniemożliwiające „rozliczenie ma się zgadzać kompletnie"
+
+**B1 — brak rejestracji uczestnika → brak inkasa prowizji KLIK (krytyczne).**
+SORBNET zna wyłącznie 3 zaseedowane banki `BANK_A/B/C` (`sorbnet/.../resources/data.sql`,
+`service_code='SORBNET'`), z reseedem `ON CONFLICT DO UPDATE` przy każdym starcie
+(`spring.sql.init.mode=always`). **Nie ma żadnego endpointu tworzącego konto banku** — operator
+umie tylko blokować/odblokować, a `deposit` wymaga istniejącego banku. Nieznany
+`senderBankId/receiverBankId` → `RuntimeException("Nieznany bank")` (`SorbnetPaymentService.process`)
+→ 404. W EU/UK/US KLIK rejestruje swój bank‑operatora (`POST /banks`, `/participants/register`,
+`INSERT bank_details`); tu nie ma jak. ⇒ `KLIK Operator PL` nie może istnieć w SORBNET, więc
+`SettlementTransfer Bank_N → KLIK` zawsze padnie ⇒ inkaso prowizji się nie zgadza. To dokładnie
+warunek z §6: strefa wchodzi do `KLIK_OPERATOR_BANK_BY_ZONE` dopiero po onboardingu KLIK w RTGS.
+
+**B2 — `GRIDLOCK_HELD` to stan nieostateczny → trwały rozjazd ksiąg.**
+Gdy `saldo − kwota < −debt_limit`, serwis **nie księguje** przelewu, zwraca **HTTP 200 +
+`TxSts=GRIDLOCK_HELD`** i wrzuca go do kolejki, a finalny wynik dosyła **asynchronicznie po Kafce**
+(`responses.elixir*`), której KLIK nie konsumuje. Kontrakt bramki KLIK zna tylko
+`SUCCESS/FAILED/TIMEOUT` → zmapuje to na `FAILED`, podczas gdy SORBNET kiedyś dopnie przelew.
+Salda po obu stronach przestają się zgadzać, a KLIK nie ma kanału, by się o tym dowiedzieć.
+
+**B3 — niezależna księga + wewnętrznie sprzeczny seed.**
+SORBNET prowadzi własne salda, `debt_limit`, blokady i auto‑block po przekroczeniu limitu
+(`sorbnet.overlimit.block-after-minutes/hours`). KLIK liczy netto na swoich saldach i zakłada, że
+RTGS tylko wykona wskazany przelew. Dwie niezależne księgi rozjeżdżają się, a uzgodnić ich nie można,
+bo uczestnicy KLIK ≠ uczestnicy SORBNET (B1). Dodatkowo seed jest sprzeczny: `data.sql` SORBNET
+ustawia `debt_limit=30 000 000`, a seed modułu ELIXIR nadpisuje te same konta na `debt_limit=0` —
+próg gridlocku (B2) zależy więc od kolejności startu serwisów.
+
+**B4 — model docelowo Kafka + GUI‑operator; REST to wycinek.**
+Płynność (camt.050) i zatwierdzenia idą przez Kafkę i panel operatora; synchroniczny
+`POST /api/sorbnet/payments` to tylko fragment. Po samym HTTP nie zbudujemy kompletnego,
+uzgadnialnego rozliczenia (brak ścieżki potwierdzeń, brak zwrotnego kanału statusów do KLIK).
+
+### Drobiazgi kontraktowe (gdyby nawet B1–B4 zniknęły — do poprawy po ich stronie)
+- Błędy zwracają JSON `{"message": …}` (`GlobalExceptionHandler`), nie `{"detail"}`/`{"failure_reason"}`,
+  więc nasz parser i tak nie wyciągnąłby powodu czysto.
+- `senderBankId/receiverBankId` = `BICFI`, normalizowane `toUpperCase()`, muszą równać się `bank_id`
+  z ich seeda (`BANK_A` …) — to nie jest realny BIC.
+- PLN‑only, RTGS wysokokwotowy; tożsamość konta rozstrzygana po 3 stałych IBAN‑ach.
+
+### Wynik
+Zostajemy na **RTGS mock** dla PL (JSON `POST /settle`, `GET /healthz`) — działa, rozliczenie się
+spina, prowizje KLIK w PL pozostają **collect‑at‑source** (§6). Realny SORBNET będzie integrowalny
+dopiero, gdy zespół Elixir‑PZ doda: (a) rejestrację uczestnika, oraz (b) synchroniczny, **ostateczny**
+status po HTTP zamiast `GRIDLOCK_HELD` (albo zwrotny kanał statusów, który KLIK może odpytać).
+
+> Nie testowano na żywo w tym sandboxie (brak daemona Dockera; ich stack to Kafka 4.0 + YugabyteDB +
+> 3× Spring Boot). Ocena oparta na ich źródłach. Procedura live‑demo i mapowanie pól — patrz sekcja
+> SORBNET w dokumencie onboardingowym.
+
+---
+
+## 11. Szybkie odpowiedzi
 
 - **Gdzie są pieniądze?** Na kontach rozliczeniowych banków w RTGS. KLIK nie trzyma środków.
 - **Jak płyną?** Bank→bank, jednym przelewem netto na strefę, po nettingu, przez RTGS danej strefy.

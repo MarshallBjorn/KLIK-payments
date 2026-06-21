@@ -223,12 +223,17 @@ PR nie zostanie zmergowany jeśli CI jest czerwony.
 | Moduł Recurring — backend | ✅ kompletny  |
 | Dispatcher RTGS | ✅ kompletny |
 | Mock RTGS | ✅ kompletny |
-| SORBNET, TARGET, CHAPS, FEDNOW | ❌ ✅ ✅ 🟡 |
+| SORBNET, TARGET, CHAPS, FEDNOW | ❌ ✅ ✅ ✅ |
 | Sesje rozliczeniowe (netting + settlement) | ✅ kompletny |
 | Agent rozliczeniowy (Vue, :5175, w Dockerze) | ✅ kompletny |
 | Mock banku — C2B (:8100 / :5174) | ✅ kompletny |
 | Mock banku — P2P (register / lookup / delete w UI) | ✅ kompletny |
 | Deployment guide (single-host + split per-VPS) | ✅ kompletny — patrz [docs/deployment.md](./docs/deployment.md) |
+
+> **SORBNET = ❌ świadomie.** Realny serwis SORBNET zespołu Elixir‑PZ został oceniony i **odrzucony** —
+> bariery po ich stronie (brak rejestracji uczestnika, nieostateczny `GRIDLOCK_HELD`, niezależna księga)
+> uniemożliwiają kompletne uzgodnienie rozliczenia. PL zostaje na **RTGS mock**. Pełna przyczyna:
+> [docs/RTGS-SETTLEMENT.md §10](./docs/RTGS-SETTLEMENT.md).
 
 ## Autorzy
 
