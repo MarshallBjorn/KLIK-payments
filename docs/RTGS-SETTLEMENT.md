@@ -132,9 +132,8 @@ przez RTGS niezależnie od powyższego.
 **Status inkasa składek per strefa:**
 - **EU (TARGET)** — aktywne, zweryfikowane end-to-end (saldo konta KLIK w TARGET rośnie po sesji `COMPLETED`).
 - **UK (CHAPS)** — aktywne, zweryfikowane end-to-end (sesja UK `COMPLETED`, transfer prowizji do `KLIK Operator UK`).
-- **PL (SORBNET3) / US (FedNow)** — collect-at-source do czasu onboardingu KLIK w tych RTGS.
-- - **PL (SORBNET3) / US (FedNow)** — collect-at-source do czasu onboardingu KLIK w tych RTGS.
-  (PL: integracja z realnym serwisem SORBNET zespołu Elixir‑PZ **odrzucona** — patrz §10.)
+- **US (FedNow)** —  aktywne, zweryfikowane end-to-end
+- **PL (SORBNET3)** — collect-at-source do czasu onboardingu KLIK w tych RTGS. (integracja z realnym serwisem SORBNET zespołu Elixir‑PZ **odrzucona** — patrz §10.)
 
 ---
 
