@@ -157,6 +157,17 @@ Przykładowe wywołania API dla banków znajdziesz w [INFO.md](./docs/c2b/integr
 
 ## Development workflow
 
+### Szybki start (Ewaluacja rekrutacyjna)
+
+Projekt w wersji deweloperskiej (single-host) jest w pełni "Plug-n-play". Posiada wbudowane domyślne klucze i hasła w pliku konfiguracyjnym.
+
+1. Skopiuj plik środowiskowy:
+   `cp .env.example .env`
+2. Uruchom środowisko:
+   `make dev`
+
+System automatycznie pobierze zależności, zbuduje kontenery, wykona migracje bazy danych i uruchomi healthchecki.
+
 ### Pierwszy setup po klonowaniu repo
 
 ```bash
