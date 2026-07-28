@@ -1,6 +1,8 @@
 # KLIK
 
 > Centralny operator i router płatności mobilnych w ekosystemie bankowym — odpowiednik BLIK dla wielu stref walutowych.
+> **⚠️ Note on CD Pipeline Status:** 
+> Currently, the production VPS instances are spun down to optimize cloud infrastructure costs. As a result, the CD workflow (`deploy-vps-a` and `deploy-vps-b` jobs) will intentionally fail at the SSH connection step. The core CI pipeline (linting, automated testing, and Docker image builds) remains unaffected and fully passing.
 
 **Projekt akademicki:** Aplikacje Biznesowe.
 
